@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { submitLift, submitCardio, updateWorkoutDayPlans } from "@/app/actions";
-import { suggestNextLift, suggestNextRun, suggestNextBike } from "@/lib/overload";
+import { suggestNextLift, suggestNextRun, suggestNextBike, DEFAULT_WEIGHT_INCREMENT_LB } from "@/lib/overload";
 import { mergeLiftDays, RUN_WEEKDAYS, BIKE_WEEKDAY, type DayKey, type LiftDayDef } from "@/lib/schedule";
 import { today, formatDateLabel, dayOfWeekIndex } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
@@ -12,11 +12,14 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   const profile = await requireActiveProfile();
   const { edit } = await searchParams;
 
-  const [lifts, cardio, dayPlanRows] = await Promise.all([
+  const [lifts, cardio, dayPlanRows, incrementRows] = await Promise.all([
     prisma.liftLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
     prisma.cardioLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
     prisma.workoutDayPlan.findMany({ where: { profileId: profile.id } }),
+    prisma.exerciseIncrement.findMany({ where: { profileId: profile.id } }),
   ]);
+
+  const incrementByExercise = new Map(incrementRows.map((row) => [row.exerciseName, row.incrementLb]));
 
   const overrides = new Map<DayKey, string[]>();
   for (const row of dayPlanRows) {
@@ -65,7 +68,13 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
               {day.weekday === todayWeekday && <span className="ml-2 normal-case opacity-100">• Today</span>}
             </div>
             {day.exercises.map((name) => (
-              <LiftRow key={name} name={name} lastLog={latestByExercise.get(name) ?? null} isToday={day.weekday === todayWeekday} />
+              <LiftRow
+                key={name}
+                name={name}
+                lastLog={latestByExercise.get(name) ?? null}
+                isToday={day.weekday === todayWeekday}
+                incrementLb={incrementByExercise.get(name) ?? DEFAULT_WEIGHT_INCREMENT_LB}
+              />
             ))}
           </div>
         ))}
@@ -308,12 +317,16 @@ function LiftRow({
   name,
   lastLog,
   isToday,
+  incrementLb,
 }: {
   name: string;
   lastLog: { weightKg: number; reps: number; sets: number } | null;
   isToday: boolean;
+  incrementLb: number;
 }) {
-  const suggestion = lastLog ? suggestNextLift(lastLog) : null;
+  const suggestion = lastLog
+    ? suggestNextLift({ weightLb: kgToLb(lastLog.weightKg), reps: lastLog.reps, sets: lastLog.sets }, incrementLb)
+    : null;
   return (
     <div className="py-3.5 border-b-2 border-theme-accent/15">
       <div className="text-lg font-extrabold mb-1">{name}</div>
@@ -332,7 +345,7 @@ function LiftRow({
           <div className="text-xs font-bold opacity-50 uppercase tracking-wide">{isToday ? "Today's target" : "Next target"}</div>
           {suggestion ? (
             <div className="font-bold opacity-70">
-              {kgToLb(suggestion.weightKg)}lb × {suggestion.reps} × {suggestion.sets}
+              {suggestion.weightLb}lb × {suggestion.reps} × {suggestion.sets}
             </div>
           ) : (
             <div className="font-bold opacity-50">Log a set first</div>

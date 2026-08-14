@@ -1,18 +1,21 @@
 // Progressive overload suggestions per Fitness.md rules:
-// - Lifts: increase by the smallest possible bump in weight*reps (double progression).
+// - Lifts: increase reps 8->12 at a fixed weight, then bump weight and reset
+//   to 8 reps (double progression). Weight bump defaults to 5lb (smallest
+//   dumbbell increment at a typical gym) but is overridden per-exercise
+//   whenever the user actually logs a different jump (see lib/actions.ts).
 // - Running: +0.5km each session (Tue + Fri).
 // - Biking: +3.5km week to week, but only once per week (Sat).
 
 const REP_FLOOR = 8;
 const REP_CEILING = 12;
-const WEIGHT_INCREMENT_KG = 2.5; // smallest common plate jump (1.25kg/side)
+export const DEFAULT_WEIGHT_INCREMENT_LB = 5;
 const RUN_INCREMENT_KM = 0.5;
 const RUN_BASELINE_KM = 5;
 const BIKE_INCREMENT_KM = 3.5;
 const BIKE_BASELINE_KM = 25;
 
 export type LiftSuggestion = {
-  weightKg: number;
+  weightLb: number;
   reps: number;
   sets: number;
   rationale: string;
@@ -20,22 +23,25 @@ export type LiftSuggestion = {
 
 /**
  * Double progression: add one rep before ever adding weight, since +1 rep is
- * always a smaller volume increase than +1 smallest plate.
+ * always a smaller volume increase than +1 weight increment.
  */
-export function suggestNextLift(last: { weightKg: number; reps: number; sets: number }): LiftSuggestion {
+export function suggestNextLift(
+  last: { weightLb: number; reps: number; sets: number },
+  incrementLb: number = DEFAULT_WEIGHT_INCREMENT_LB
+): LiftSuggestion {
   if (last.reps < REP_CEILING) {
     return {
-      weightKg: last.weightKg,
+      weightLb: last.weightLb,
       reps: last.reps + 1,
       sets: last.sets,
-      rationale: `+1 rep at the same weight (${last.weightKg}kg) — smaller increase than adding weight.`,
+      rationale: `+1 rep at the same weight (${last.weightLb}lb) — smaller increase than adding weight.`,
     };
   }
   return {
-    weightKg: last.weightKg + WEIGHT_INCREMENT_KG,
+    weightLb: Math.round((last.weightLb + incrementLb) * 10) / 10,
     reps: REP_FLOOR,
     sets: last.sets,
-    rationale: `Hit the ${REP_CEILING}-rep ceiling, so drop back to ${REP_FLOOR} reps and add the smallest plate increment (+${WEIGHT_INCREMENT_KG}kg).`,
+    rationale: `Hit the ${REP_CEILING}-rep ceiling, so drop back to ${REP_FLOOR} reps and add ${incrementLb}lb.`,
   };
 }
 

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getActiveProfile, setActiveProfileCookie, clearActiveProfileCookie, ensureProfilesSeeded } from "@/lib/session";
-import { feetInchesToCm, lbToKg } from "@/lib/units";
+import { feetInchesToCm, lbToKg, kgToLb } from "@/lib/units";
 import { DEFAULT_LIFT_DAYS, parseExercisesText, type DayKey } from "@/lib/schedule";
 import type { ProfileSlug, CardioType } from "@/lib/types";
 
@@ -105,16 +105,37 @@ export async function submitLift(formData: FormData) {
   const profile = await getActiveProfile();
   if (!profile) throw new Error("No active profile");
 
+  const exerciseName = requireString(formData, "exerciseName");
+  const weightLb = Number(requireString(formData, "weightLb"));
+
+  const previous = await prisma.liftLog.findFirst({
+    where: { profileId: profile.id, exerciseName },
+    orderBy: { date: "desc" },
+  });
+
   await prisma.liftLog.create({
     data: {
       profileId: profile.id,
       date: dateOnly(requireString(formData, "date")),
-      exerciseName: requireString(formData, "exerciseName"),
-      weightKg: lbToKg(Number(requireString(formData, "weightLb"))),
+      exerciseName,
+      weightKg: lbToKg(weightLb),
       reps: Number(requireString(formData, "reps")),
       sets: Number(requireString(formData, "sets")),
     },
   });
+
+  // A weight increase over the last logged set for this exercise defines the
+  // increment used for future suggestions, replacing the 5lb default.
+  if (previous) {
+    const deltaLb = Math.round((weightLb - kgToLb(previous.weightKg)) * 10) / 10;
+    if (deltaLb > 0) {
+      await prisma.exerciseIncrement.upsert({
+        where: { profileId_exerciseName: { profileId: profile.id, exerciseName } },
+        update: { incrementLb: deltaLb },
+        create: { profileId: profile.id, exerciseName, incrementLb: deltaLb },
+      });
+    }
+  }
 
   revalidatePath("/fitness");
 }

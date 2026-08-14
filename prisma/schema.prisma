@@ -32,11 +32,12 @@ model Profile {
   goalWeightKg   Float?
   goalDate       DateTime? // trip date, e.g. 2027-03-01
 
-  dailyCheckIns   DailyCheckIn[]
-  weightLogs      WeightLog[]
-  liftLogs        LiftLog[]
-  cardioLogs      CardioLog[]
-  workoutDayPlans WorkoutDayPlan[]
+  dailyCheckIns      DailyCheckIn[]
+  weightLogs         WeightLog[]
+  liftLogs           LiftLog[]
+  cardioLogs         CardioLog[]
+  workoutDayPlans    WorkoutDayPlan[]
+  exerciseIncrements ExerciseIncrement[]
 
   @@map("profiles")
 }
@@ -93,6 +94,25 @@ model LiftLog {
 
   @@index([profileId, exerciseName, date])
   @@map("lift_logs")
+}
+
+// ---- Fitness: per-exercise weight increment override ---------------------
+// Defaults to 5lb (see lib/overload.ts). Updated automatically whenever a
+// logged weight for this exercise increases by a different amount, so future
+// suggestions keep using whatever jump the user actually took.
+
+model ExerciseIncrement {
+  id           String   @id @default(cuid())
+  profileId    String
+  profile      Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  exerciseName String
+  incrementLb  Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, exerciseName])
+  @@map("exercise_increments")
 }
 
 // ---- Fitness: customizable per-day exercise lists ------------------------
