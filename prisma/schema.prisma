@@ -1,0 +1,133 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---- People -----------------------------------------------------------
+// slug is "ME" | "FRIEND" (see lib/types.ts) — plain String because SQLite
+// doesn't support native enums.
+
+model Profile {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+
+  // Inputs for BMR estimate + goal tracking.
+  // "Me" is the source of truth for nutrition targets; Friend's targets
+  // are always derived as 95% of Me's (see lib/nutrition.ts).
+  sex            String? // "male" | "female"
+  birthDate      DateTime?
+  heightCm       Float?
+  activityFactor Float?    @default(1.4) // multiplier applied to BMR -> TDEE
+  startWeightKg  Float?
+  goalWeightKg   Float?
+  goalDate       DateTime? // trip date, e.g. 2027-03-01
+
+  dailyCheckIns   DailyCheckIn[]
+  weightLogs      WeightLog[]
+  liftLogs        LiftLog[]
+  cardioLogs      CardioLog[]
+  workoutDayPlans WorkoutDayPlan[]
+
+  @@map("profiles")
+}
+
+// ---- Daily check-in -----------------------------------------------------
+
+model DailyCheckIn {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date      DateTime
+
+  stuckToMealPlan    Boolean
+  stuckToFitnessPlan Boolean
+  sleepScore         Int? // 0-100, from wearable
+  recoveryScore      Int? // 0-100, from wearable
+  bmrReadingKcal     Int? // daily BMR/RMR reading from wearable, used for 7-day rolling avg
+  notes              String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([profileId, date])
+  @@map("daily_checkins")
+}
+
+// ---- Weekly weigh-in -----------------------------------------------------
+
+model WeightLog {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date      DateTime
+  weightKg  Float
+
+  createdAt DateTime @default(now())
+
+  @@unique([profileId, date])
+  @@map("weight_logs")
+}
+
+// ---- Fitness: lifts -----------------------------------------------------
+
+model LiftLog {
+  id           String   @id @default(cuid())
+  profileId    String
+  profile      Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date         DateTime
+  exerciseName String
+  weightKg     Float
+  reps         Int
+  sets         Int
+
+  createdAt DateTime @default(now())
+
+  @@index([profileId, exerciseName, date])
+  @@map("lift_logs")
+}
+
+// ---- Fitness: customizable per-day exercise lists ------------------------
+// dayKey is "A1" | "B1" | "A2" | "B2" (see lib/schedule.ts). Only present
+// when a profile has overridden the built-in Fitness.md default for that day.
+// exercises is a "\n"-joined list of exercise names, one per line.
+
+model WorkoutDayPlan {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  dayKey    String
+  exercises String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, dayKey])
+  @@map("workout_day_plans")
+}
+
+// ---- Fitness: cardio (run / bike) ----------------------------------------
+// type is "RUN" | "BIKE" (see lib/types.ts)
+
+model CardioLog {
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date        DateTime
+  type        String
+  distanceKm  Float
+  durationMin Float?
+
+  createdAt DateTime @default(now())
+
+  @@index([profileId, type, date])
+  @@map("cardio_logs")
+}

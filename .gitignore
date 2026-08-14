@@ -39,3 +39,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/app/generated/prisma
+
+# sqlite database
+/prisma/*.db
+/prisma/*.db-journal
+
+# local AI tooling config (not part of the app)
+/.claude
+/.agents
+/.windsurf
+skills-lock.json
