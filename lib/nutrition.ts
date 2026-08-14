@@ -33,10 +33,10 @@ export type MacroTargets = {
   scaleFactor: number;
 };
 
-/** 7-day trailing average of wearable BMR readings, or null if not enough data. */
-export async function getSevenDayAvgBmr(profileId: string): Promise<number | null> {
+/** 1-month trailing average of wearable BMR readings, or null if not enough data. */
+export async function getMonthlyAvgBmr(profileId: string): Promise<number | null> {
   const since = new Date();
-  since.setDate(since.getDate() - 7);
+  since.setDate(since.getDate() - 30);
 
   const checkIns = await prisma.dailyCheckIn.findMany({
     where: { profileId, date: { gte: since }, bmrReadingKcal: { not: null } },
@@ -49,12 +49,12 @@ export async function getSevenDayAvgBmr(profileId: string): Promise<number | nul
 }
 
 /**
- * "Me"'s macro targets, scaled off the 7-day avg BMR * activity factor when
+ * "Me"'s macro targets, scaled off the 1-month avg BMR * activity factor when
  * available, falling back to the fixed baseline plan otherwise.
  */
 export async function getMeTargets(meProfileId: string): Promise<MacroTargets> {
   const [avgBmr, profile] = await Promise.all([
-    getSevenDayAvgBmr(meProfileId),
+    getMonthlyAvgBmr(meProfileId),
     prisma.profile.findUnique({ where: { id: meProfileId } }),
   ]);
 

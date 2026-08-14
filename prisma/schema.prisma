@@ -53,7 +53,7 @@ model DailyCheckIn {
   stuckToFitnessPlan Boolean
   sleepScore         Int? // 0-100, from wearable
   recoveryScore      Int? // 0-100, from wearable
-  bmrReadingKcal     Int? // daily BMR/RMR reading from wearable, used for 7-day rolling avg
+  bmrReadingKcal     Int? // daily BMR/RMR reading from wearable, used for 1-month rolling avg
   notes              String?
 
   createdAt DateTime @default(now())
