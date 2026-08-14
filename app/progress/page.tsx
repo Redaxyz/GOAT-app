@@ -13,10 +13,20 @@ function toInputDate(date: Date | null): string {
 export default async function ProgressPage() {
   const profile = await requireActiveProfile();
 
-  const logs = await prisma.weightLog.findMany({
-    where: { profileId: profile.id },
-    orderBy: { date: "asc" },
-  });
+  const [logs, checkIns] = await Promise.all([
+    prisma.weightLog.findMany({
+      where: { profileId: profile.id },
+      orderBy: { date: "asc" },
+    }),
+    prisma.dailyCheckIn.findMany({
+      where: { profileId: profile.id },
+      select: { stuckToFitnessPlan: true, stuckToMealPlan: true },
+    }),
+  ]);
+
+  const totalDays = checkIns.length;
+  const fitnessSuccessDays = checkIns.filter((c) => c.stuckToFitnessPlan).length;
+  const dietSuccessDays = checkIns.filter((c) => c.stuckToMealPlan).length;
 
   const pace = computePace(profile, logs);
   const height = cmToFeetInches(profile.heightCm);
@@ -26,6 +36,15 @@ export default async function ProgressPage() {
     <div className="space-y-10">
       <section>
         <h1 className="text-2xl font-extrabold mb-5">Progress</h1>
+
+        <div className="mb-6 space-y-1">
+          <div className="text-lg font-bold">
+            Successful fitness days: <span className="font-extrabold">{fitnessSuccessDays}</span>/{totalDays}
+          </div>
+          <div className="text-lg font-bold">
+            Successful diet days: <span className="font-extrabold">{dietSuccessDays}</span>/{totalDays}
+          </div>
+        </div>
 
         <div className="grid grid-cols-2 gap-y-4 mb-6">
           <Stat label="Days to trip" value={pace.daysRemaining != null ? `${pace.daysRemaining}` : "—"} />
