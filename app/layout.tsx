@@ -38,7 +38,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col">
         <LoginGate />
         <Nav />
-        <main className="max-w-3xl mx-auto w-full px-4 py-6 pb-24 flex-1">{children}</main>
+        <main className="max-w-3xl mx-auto w-full px-4 py-6 pb-28 flex-1">{children}</main>
         <BottomNav mirrored={mirrored} />
       </body>
     </html>

@@ -1,10 +1,11 @@
 import { getActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { submitCheckIn } from "@/app/actions";
-import { today, addDays, isSunday, formatDateLabel } from "@/lib/date";
+import { today, addDays, isSunday, dateOnly, formatDateLabel } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
 import Link from "next/link";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/app/components/icons";
+import Row from "@/app/components/Row";
 
 export default async function HomePage({
   searchParams,
@@ -22,7 +23,7 @@ export default async function HomePage({
   const prevDate = addDays(selectedDate, -1);
   const nextDate = addDays(selectedDate, 1);
 
-  const dateFilter = { profileId_date: { profileId: profile.id, date: new Date(`${selectedDate}T00:00:00.000Z`) } };
+  const dateFilter = { profileId_date: { profileId: profile.id, date: dateOnly(selectedDate) } };
 
   const [existing, weightLog] = await Promise.all([
     prisma.dailyCheckIn.findUnique({ where: dateFilter }),
@@ -41,7 +42,7 @@ export default async function HomePage({
         </Link>
 
         <div className="text-center">
-          <div className="text-2xl font-extrabold">{formatDateLabel(new Date(`${selectedDate}T00:00:00.000Z`))}</div>
+          <div className="text-2xl font-extrabold">{formatDateLabel(dateOnly(selectedDate))}</div>
           {isToday && <div className="text-xs font-bold opacity-60 uppercase tracking-wide">Today</div>}
         </div>
 
@@ -115,10 +116,6 @@ export default async function HomePage({
       </section>
     </div>
   );
-}
-
-function Row({ children }: { children: React.ReactNode }) {
-  return <div className="flex items-center justify-between gap-4 py-3.5 border-b-2 border-theme-accent/15">{children}</div>;
 }
 
 function DisplayRow({ label, value }: { label: string; value: string | number }) {

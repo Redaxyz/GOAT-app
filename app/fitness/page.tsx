@@ -7,6 +7,7 @@ import { mergeLiftDays, RUN_WEEKDAYS, BIKE_WEEKDAY, type DayKey, type LiftDayDef
 import { today, formatDateLabel, dayOfWeekIndex } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
 import { PencilIcon } from "@/app/components/icons";
+import Row from "@/app/components/Row";
 
 export default async function FitnessPage({ searchParams }: { searchParams: Promise<{ edit?: string }> }) {
   const profile = await requireActiveProfile();
@@ -307,10 +308,6 @@ function EditView({ liftDays }: { liftDays: LiftDayDef[] }) {
       </form>
     </div>
   );
-}
-
-function Row({ children }: { children: React.ReactNode }) {
-  return <div className="flex items-center justify-between gap-4 py-3.5 border-b-2 border-theme-accent/15">{children}</div>;
 }
 
 function LiftRow({

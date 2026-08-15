@@ -34,9 +34,9 @@ export default function BottomNav({ mirrored }: { mirrored: boolean }) {
                   type="submit"
                   aria-label="Switch profile"
                   title="Switch profile"
-                  className="w-full flex flex-col items-center gap-1 py-2.5 text-xs font-bold opacity-60 hover:opacity-100 active:scale-95 transition"
+                  className="w-full flex flex-col items-center gap-1.5 py-3.5 text-xs font-bold opacity-60 hover:opacity-100 active:scale-95 transition"
                 >
-                  <SwitchProfileIcon className="w-5 h-5" />
+                  <SwitchProfileIcon className="w-7 h-7" />
                   {item.label}
                 </button>
               </form>
@@ -50,20 +50,20 @@ export default function BottomNav({ mirrored }: { mirrored: boolean }) {
               key={item.key}
               href={item.href}
               aria-label={item.label}
-              className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-xs font-bold transition-opacity ${
+              className={`flex-1 flex flex-col items-center gap-1.5 py-3.5 text-xs font-bold transition-opacity ${
                 isHome ? "" : active ? "opacity-100" : "opacity-60 hover:opacity-100"
               }`}
             >
               {isHome ? (
                 <>
-                  <span className="-mt-6 flex items-center justify-center w-14 h-14 rounded-full border-4 border-background bg-theme-accent text-theme-own shadow-md">
-                    <item.Icon className="w-6 h-6" />
+                  <span className="-mt-7 flex items-center justify-center w-16 h-16 rounded-full border-4 border-background bg-theme-accent text-theme-own shadow-md">
+                    <item.Icon className="w-7 h-7" />
                   </span>
                   <span className="-mt-1">{item.label}</span>
                 </>
               ) : (
                 <>
-                  <item.Icon className="w-5 h-5" />
+                  <item.Icon className="w-7 h-7" />
                   {item.label}
                 </>
               )}

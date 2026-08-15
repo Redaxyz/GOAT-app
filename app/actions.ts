@@ -6,11 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { getActiveProfile, setActiveProfileCookie, clearActiveProfileCookie, ensureProfilesSeeded } from "@/lib/session";
 import { feetInchesToCm, lbToKg, kgToLb } from "@/lib/units";
 import { DEFAULT_LIFT_DAYS, parseExercisesText, type DayKey } from "@/lib/schedule";
+import { dateOnly } from "@/lib/date";
 import type { ProfileSlug, CardioType } from "@/lib/types";
-
-function dateOnly(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
-}
 
 function requireString(formData: FormData, key: string): string {
   const value = formData.get(key);

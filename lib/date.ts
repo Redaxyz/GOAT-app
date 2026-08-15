@@ -2,6 +2,11 @@ export function toDateInputValue(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** Parses an ISO date string ("YYYY-MM-DD") as UTC midnight — the shape every date column is stored/compared in. */
+export function dateOnly(isoDate: string): Date {
+  return new Date(`${isoDate}T00:00:00.000Z`);
+}
+
 export function formatDateLabel(date: Date): string {
   return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
@@ -22,13 +27,13 @@ export function today(): string {
 }
 
 export function addDays(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate}T00:00:00.000Z`);
+  const date = dateOnly(isoDate);
   date.setUTCDate(date.getUTCDate() + days);
   return toDateInputValue(date);
 }
 
 export function dayOfWeekIndex(isoDate: string): number {
-  return new Date(`${isoDate}T00:00:00.000Z`).getUTCDay();
+  return dateOnly(isoDate).getUTCDay();
 }
 
 export function isSunday(isoDate: string): boolean {

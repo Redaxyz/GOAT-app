@@ -24,7 +24,6 @@ model Profile {
   // Inputs for BMR estimate + goal tracking.
   // "Me" is the source of truth for nutrition targets; Friend's targets
   // are always derived as 95% of Me's (see lib/nutrition.ts).
-  sex            String? // "male" | "female"
   birthDate      DateTime?
   heightCm       Float?
   activityFactor Float?    @default(1.4) // multiplier applied to BMR -> TDEE

@@ -2,12 +2,13 @@ import { requireActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { submitWeight, updateProfileSettings } from "@/app/actions";
 import { computePace } from "@/lib/progress";
-import { today } from "@/lib/date";
+import { today, toDateInputValue } from "@/lib/date";
 import { cmToFeetInches, kgToLb } from "@/lib/units";
 import WeightChart from "@/app/components/WeightChart";
+import Row from "@/app/components/Row";
 
 function toInputDate(date: Date | null): string {
-  return date ? date.toISOString().slice(0, 10) : "";
+  return date ? toDateInputValue(date) : "";
 }
 
 export default async function ProgressPage() {
@@ -196,10 +197,6 @@ export default async function ProgressPage() {
       </section>
     </div>
   );
-}
-
-function Row({ children }: { children: React.ReactNode }) {
-  return <div className="flex items-center justify-between gap-4 py-3.5 border-b-2 border-theme-accent/15">{children}</div>;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
