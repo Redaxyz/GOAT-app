@@ -1,7 +1,5 @@
-import { prisma } from "@/lib/prisma";
-
-// Baseline plan for "Me", straight from nutrition_plan.md. Friend's targets
-// are always exactly 95% of these (scaled by the same BMR adjustment).
+// Fixed daily targets. The grocery page always uses these directly — it does
+// not scale by BMR check-in data.
 export const BASELINE_TARGETS = {
   proteinG: 180,
   carbsG: 195,
@@ -11,18 +9,84 @@ export const BASELINE_TARGETS = {
 
 export const FRIEND_FACTOR = 0.95;
 
+// Chicken thigh loses ~25% of its weight to cooking; the grocery list needs
+// raw purchase weight even though meals are portioned by cooked weight.
+// Salmon and tuna are tracked at the weight actually eaten (raw fillet /
+// drained can) since that's the basis their macros were given in.
+const CHICKEN_COOKING_YIELD = 0.75;
+
+type ProteinKind = "chicken" | "salmon" | "tuna";
+
+type DayType = {
+  yogurt: number; // g
+  lunch: { protein: ProteinKind; item: string; amount: number; rice: number };
+  dinner: { protein: ProteinKind; item: string; amount: number; pasta: number };
+};
+
+const GRANOLA_DAILY = 40; // g, same every day
+const FRUIT_DAILY = 200; // g, same every day
+const RICE_LUNCH_DAILY = 50; // g raw, same every day
+
+// Lunch is always tuna + rice — tuna never goes with the pasta dinner.
+// Dinner alternates chicken/salmon for variety and is always the bigger
+// meal: lunch stays light to avoid afternoon-work lethargy and to keep food
+// out of the system before the after-work gym/run; dinner (after the gym)
+// has no more exercise to work around, so it carries most of the day's fat
+// and a large share of the protein.
+//
+// Each day's numbers are solved independently (not just scaled) so every day
+// lands on the exact 180p/195c/56f/~2000cal targets regardless of which
+// proteins are used — chicken, salmon, and tuna each have a different
+// protein:fat ratio, so the portions aren't interchangeable.
+const DAY_TYPES: Record<"tunaChicken" | "tunaSalmon", DayType> = {
+  tunaChicken: {
+    yogurt: 223,
+    lunch: { protein: "tuna", item: "Tuna, canned in water (drained)", amount: 113, rice: RICE_LUNCH_DAILY },
+    dinner: { protein: "chicken", item: "Chicken thigh, cooked", amount: 420, pasta: 133 },
+  },
+  tunaSalmon: {
+    yogurt: 168,
+    lunch: { protein: "tuna", item: "Tuna, canned in water (drained)", amount: 339, rice: RICE_LUNCH_DAILY },
+    dinner: { protein: "salmon", item: "Salmon, Atlantic, raw", amount: 345, pasta: 137 },
+  },
+};
+
+export const WEEKLY_MEAL_PLAN = [
+  { day: "Monday", type: "tunaChicken" },
+  { day: "Tuesday", type: "tunaSalmon" },
+  { day: "Wednesday", type: "tunaChicken" },
+  { day: "Thursday", type: "tunaSalmon" },
+  { day: "Friday", type: "tunaChicken" },
+  { day: "Saturday", type: "tunaSalmon" },
+  { day: "Sunday", type: "tunaChicken" },
+] as const satisfies { day: string; type: keyof typeof DAY_TYPES }[];
+
+function weeklySum(pick: (d: DayType) => number) {
+  return WEEKLY_MEAL_PLAN.reduce((sum, { type }) => sum + pick(DAY_TYPES[type]), 0);
+}
+
+const weeklyChickenCooked = weeklySum((d) => (d.dinner.protein === "chicken" ? d.dinner.amount : 0));
+const weeklySalmonRaw = weeklySum((d) => (d.dinner.protein === "salmon" ? d.dinner.amount : 0));
+const weeklyTuna = weeklySum((d) => d.lunch.amount);
+const weeklyRice = weeklySum((d) => d.lunch.rice);
+const weeklyPasta = weeklySum((d) => d.dinner.pasta);
+const weeklyYogurt = weeklySum((d) => d.yogurt);
+
+// Weekly grocery list, derived from the day-by-day plan above. Chicken is
+// converted from cooked meal weight to raw purchase weight.
 export const BASELINE_GROCERY = [
-  { item: "Chicken breast, boneless skinless", amount: 985, unit: "g" },
-  { item: "Chicken thigh, boneless skinless", amount: 859, unit: "g" },
-  { item: "Salmon, Atlantic", amount: 744, unit: "g" },
-  { item: "Ground beef, 90/10", amount: 495, unit: "g" },
-  { item: "Tuna, canned in water", amount: 1496, unit: "g" },
-  { item: "Rice, raw (white)", amount: 973, unit: "g" },
-  { item: "Corn, kernels", amount: 630, unit: "g" },
-  { item: "Eggs", amount: 14, unit: "count" },
-  { item: "Greek yogurt (Oikos Triple Zero Vanilla)", amount: 1400, unit: "g" },
-  { item: "Granola", amount: 280, unit: "g" },
-  { item: "Mixed fruit", amount: 1400, unit: "g" },
+  {
+    item: "Chicken thigh, boneless skinless (raw)",
+    amount: Math.round(weeklyChickenCooked / CHICKEN_COOKING_YIELD),
+    unit: "g",
+  },
+  { item: "Salmon, Atlantic, raw", amount: weeklySalmonRaw, unit: "g" },
+  { item: "Tuna, canned in water (drained)", amount: weeklyTuna, unit: "g" },
+  { item: "Rice, raw (white)", amount: weeklyRice, unit: "g" },
+  { item: "Protein pasta, dry", amount: weeklyPasta, unit: "g" },
+  { item: "Greek yogurt (Oikos Triple Zero Vanilla)", amount: weeklyYogurt, unit: "g" },
+  { item: "Granola", amount: GRANOLA_DAILY * WEEKLY_MEAL_PLAN.length, unit: "g" },
+  { item: "Mixed fruit", amount: FRUIT_DAILY * WEEKLY_MEAL_PLAN.length, unit: "g" },
 ] as const;
 
 export type MacroTargets = {
@@ -33,45 +97,7 @@ export type MacroTargets = {
   scaleFactor: number;
 };
 
-/** 1-month trailing average of wearable BMR readings, or null if not enough data. */
-export async function getMonthlyAvgBmr(profileId: string): Promise<number | null> {
-  const since = new Date();
-  since.setDate(since.getDate() - 30);
-
-  const checkIns = await prisma.dailyCheckIn.findMany({
-    where: { profileId, date: { gte: since }, bmrReadingKcal: { not: null } },
-    select: { bmrReadingKcal: true },
-  });
-
-  if (checkIns.length === 0) return null;
-  const total = checkIns.reduce((sum, c) => sum + (c.bmrReadingKcal ?? 0), 0);
-  return Math.round(total / checkIns.length);
-}
-
-/**
- * "Me"'s macro targets, scaled off the 1-month avg BMR * activity factor when
- * available, falling back to the fixed baseline plan otherwise.
- */
-export async function getMeTargets(meProfileId: string): Promise<MacroTargets> {
-  const [avgBmr, profile] = await Promise.all([
-    getMonthlyAvgBmr(meProfileId),
-    prisma.profile.findUnique({ where: { id: meProfileId } }),
-  ]);
-
-  const activityFactor = profile?.activityFactor ?? 1.4;
-  const adjustedCalories = avgBmr ? Math.round(avgBmr * activityFactor) : BASELINE_TARGETS.calories;
-  const scaleFactor = adjustedCalories / BASELINE_TARGETS.calories;
-
-  return {
-    calories: adjustedCalories,
-    proteinG: Math.round(BASELINE_TARGETS.proteinG * scaleFactor),
-    carbsG: Math.round(BASELINE_TARGETS.carbsG * scaleFactor),
-    fatG: Math.round(BASELINE_TARGETS.fatG * scaleFactor),
-    scaleFactor,
-  };
-}
-
-/** Friend's targets are always exactly 5% less than Me's current targets. */
+/** Friend's targets are always exactly 5% less than Me's. */
 export function getFriendTargets(meTargets: MacroTargets): MacroTargets {
   return {
     calories: Math.round(meTargets.calories * FRIEND_FACTOR),
@@ -89,41 +115,26 @@ export function getGroceryList(scaleFactor: number) {
   }));
 }
 
-// Fixed daily components, straight from nutrition_plan.md.
-
-export const BREAKFAST = [
-  { item: "Greek yogurt (Oikos Triple Zero Vanilla)", amount: 200, unit: "g" },
-  { item: "Granola", amount: 40, unit: "g" },
-  { item: "Mixed fruit", amount: 200, unit: "g" },
-  { item: "Sugar-free syrup", amount: 30, unit: "g" },
-] as const;
-
-// Added to each of the 2 protein meals every day.
-export const PER_MEAL_ADDONS = [
-  { item: "Rice, raw (white)", amount: 70, unit: "g" },
-  { item: "Corn, kernels", amount: 45, unit: "g" },
-  { item: "Egg", amount: 1, unit: "count" },
-] as const;
-
-export const WEEKLY_MEAL_PLAN = [
-  { day: "Day 1 — Monday", meals: [{ protein: "Chicken breast", amount: 367 }, { protein: "Salmon", amount: 232 }] },
-  { day: "Day 2 — Tuesday", meals: [{ protein: "Salmon", amount: 256 }, { protein: "Tuna", amount: 408 }] },
-  { day: "Day 3 — Wednesday", meals: [{ protein: "Chicken breast", amount: 386 }, { protein: "Ground beef (90/10)", amount: 234 }] },
-  { day: "Day 4 — Thursday", meals: [{ protein: "Ground beef (90/10)", amount: 261 }, { protein: "Tuna", amount: 432 }] },
-  { day: "Day 5 — Friday", meals: [{ protein: "Chicken thigh", amount: 443 }, { protein: "Tuna", amount: 248 }] },
-  { day: "Day 6 — Saturday", meals: [{ protein: "Chicken thigh", amount: 416 }, { protein: "Chicken breast", amount: 232 }] },
-  { day: "Day 7 — Sunday", meals: [{ protein: "Salmon", amount: 256 }, { protein: "Tuna", amount: 408 }] },
-] as const;
-
 export function getMealPlan(scaleFactor: number) {
   const scale = (amount: number) => Math.round(amount * scaleFactor);
 
-  return {
-    breakfast: BREAKFAST.map((row) => ({ ...row, amount: scale(row.amount) })),
-    perMealAddons: PER_MEAL_ADDONS.map((row) => ({ ...row, amount: scale(row.amount) })),
-    days: WEEKLY_MEAL_PLAN.map((day) => ({
-      day: day.day,
-      meals: day.meals.map((m) => ({ ...m, amount: scale(m.amount) })),
-    })),
-  };
+  return WEEKLY_MEAL_PLAN.map(({ day, type }) => {
+    const t = DAY_TYPES[type];
+    return {
+      day,
+      breakfast: [
+        { item: "Greek yogurt (Oikos Triple Zero Vanilla)", amount: scale(t.yogurt), unit: "g" },
+        { item: "Granola", amount: scale(GRANOLA_DAILY), unit: "g" },
+        { item: "Mixed fruit", amount: scale(FRUIT_DAILY), unit: "g" },
+      ],
+      lunch: [
+        { item: t.lunch.item, amount: scale(t.lunch.amount), unit: "g" },
+        { item: "Rice, raw (white)", amount: scale(t.lunch.rice), unit: "g" },
+      ],
+      dinner: [
+        { item: t.dinner.item, amount: scale(t.dinner.amount), unit: "g" },
+        { item: "Protein pasta, dry", amount: scale(t.dinner.pasta), unit: "g" },
+      ],
+    };
+  });
 }
