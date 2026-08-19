@@ -8,7 +8,9 @@ type Point = { id: string; date: Date; weightLb: number };
 
 const WIDTH = 640;
 const HEIGHT = 220;
-const PADDING = 28;
+const PADDING = 12;
+const LEFT_PADDING = 46; // room for the y-axis weight labels, separate from the top/right margin
+const TOP_PADDING = 16;
 const BOTTOM_PADDING = 36;
 
 const axisLabel = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -56,8 +58,8 @@ export default function WeightChart({ points }: { points: Point[] }) {
   const range = maxW - minW || 1;
 
   const chartBottom = HEIGHT - BOTTOM_PADDING;
-  const toX = (t: number) => PADDING + ((t - minDate) / dateRange) * (WIDTH - PADDING * 2);
-  const toY = (w: number) => chartBottom - ((w - minW) / range) * (chartBottom - PADDING);
+  const toX = (t: number) => LEFT_PADDING + ((t - minDate) / dateRange) * (WIDTH - LEFT_PADDING - PADDING);
+  const toY = (w: number) => chartBottom - ((w - minW) / range) * (chartBottom - TOP_PADDING);
 
   const path = sorted.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(p.date.getTime()).toFixed(1)} ${toY(p.weightLb).toFixed(1)}`).join(" ");
   const trendPath = `M ${toX(minDate).toFixed(1)} ${toY(trendStartY).toFixed(1)} L ${toX(maxDate).toFixed(1)} ${toY(trendEndY).toFixed(1)}`;
@@ -65,7 +67,8 @@ export default function WeightChart({ points }: { points: Point[] }) {
   return (
     <div>
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full h-[220px] text-theme-accent">
-        <line x1={PADDING} y1={chartBottom} x2={WIDTH - PADDING} y2={chartBottom} stroke="currentColor" strokeOpacity={0.2} strokeWidth={1} />
+        <line x1={LEFT_PADDING} y1={TOP_PADDING} x2={LEFT_PADDING} y2={chartBottom} stroke="currentColor" strokeOpacity={0.2} strokeWidth={1} />
+        <line x1={LEFT_PADDING} y1={chartBottom} x2={WIDTH - PADDING} y2={chartBottom} stroke="currentColor" strokeOpacity={0.2} strokeWidth={1} />
 
         <path d={trendPath} fill="none" stroke="currentColor" strokeWidth={1.5} strokeDasharray="5 4" opacity={0.45} />
         <path d={path} fill="none" stroke="currentColor" strokeWidth={2} />
@@ -93,14 +96,14 @@ export default function WeightChart({ points }: { points: Point[] }) {
           );
         })}
 
-        <text x={PADDING} y={14} fontSize={11} fill="currentColor" opacity={0.6}>
-          {maxW.toFixed(1)}lb
+        <text x={LEFT_PADDING - 6} y={toY(maxW) + 4} fontSize={11} fill="currentColor" opacity={0.6} textAnchor="end">
+          {maxW.toFixed(1)}
         </text>
-        <text x={PADDING} y={PADDING + 8} fontSize={11} fill="currentColor" opacity={0.6}>
-          {minW.toFixed(1)}lb
+        <text x={LEFT_PADDING - 6} y={toY(minW) + 4} fontSize={11} fill="currentColor" opacity={0.6} textAnchor="end">
+          {minW.toFixed(1)}
         </text>
 
-        <text x={PADDING} y={HEIGHT - 12} fontSize={11} fill="currentColor" opacity={0.6}>
+        <text x={LEFT_PADDING} y={HEIGHT - 12} fontSize={11} fill="currentColor" opacity={0.6}>
           {axisLabel(sorted[0].date)}
         </text>
         <text x={WIDTH - PADDING} y={HEIGHT - 12} fontSize={11} fill="currentColor" opacity={0.6} textAnchor="end">
