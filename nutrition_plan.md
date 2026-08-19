@@ -5,7 +5,7 @@
 - Carbs: 195g
 - Fat: 56g
 - Calories: 2000 (±50 tolerance)
-- 3 meals/day: breakfast (fixed-ish) + lunch + dinner
+- 3 meals/day: breakfast (fixed) + lunch + dinner
 - Beverage: water only, occasional milk
 - These targets are fixed — the app no longer scales them by BMR check-in data.
 - Every day hits the targets **exactly**, solved independently per day — chicken, salmon, and tuna each have a different protein:fat ratio, so portions aren't just copy-pasted across days.
@@ -29,59 +29,60 @@
 **Chicken thigh cooking yield:** raw weight ≈ cooked weight ÷ 0.75 (~25% weight loss from cooking), used only to convert the weekly grocery total to a raw purchase weight. Salmon and tuna need no such conversion — they're tracked at the weight actually eaten (raw fillet / drained can).
 
 ## Meal Structure
+- **Breakfast is standardized: 200g Greek yogurt, 40g granola, 200g mixed fruit, every single day.** No variation by day type.
 - **Lunch is always tuna + rice.** Tuna never goes with the pasta dinner (bad combo).
 - **Dinner alternates chicken and salmon**, both with protein pasta, for variety.
-- **Dinner is always the bigger meal.** Lunch stays light to avoid afternoon-work lethargy and to keep food out of the system before the after-work gym/run. Dinner (after the gym) has no more exercise to work around, so it carries most of the day's fat and a large share of the protein.
-- Rice portion (50g) and granola/fruit (40g/200g) stay the same every day; only the proteins, pasta, and yogurt vary by day type.
+- With breakfast now fixed the same every day, the rice/pasta/protein amounts are what absorb the difference between a chicken day and a salmon day to keep hitting the exact macro targets — see Design Notes below.
 
 ### Type A — tuna & chicken (Mon/Wed/Fri/Sun)
 | Meal | Item | Amount |
 |---|---|---|
-| Breakfast | Greek yogurt | 223g |
+| Breakfast | Greek yogurt | 200g |
 | Breakfast | Granola | 40g |
 | Breakfast | Mixed fruit | 200g |
 | Lunch | Tuna, canned in water (drained) | 113g (1 can) |
-| Lunch | Rice, raw | 50g |
-| Dinner | Chicken thigh, cooked | 420g |
-| Dinner | Protein pasta, dry | 133g |
+| Lunch | Rice, raw | 31g |
+| Dinner | Chicken thigh, cooked | 417g |
+| Dinner | Protein pasta, dry | 158g |
 
-Lunch: 163g of food. Dinner: 553g of food.
+Lunch: 144g of food. Dinner: 575g of food.
 
 ### Type B — tuna & salmon (Tue/Thu/Sat)
 | Meal | Item | Amount |
 |---|---|---|
-| Breakfast | Greek yogurt | 168g |
+| Breakfast | Greek yogurt | 200g |
 | Breakfast | Granola | 40g |
 | Breakfast | Mixed fruit | 200g |
 | Lunch | Tuna, canned in water (drained) | 339g (3 cans) |
-| Lunch | Rice, raw | 50g |
-| Dinner | Salmon, Atlantic, raw | 345g |
-| Dinner | Protein pasta, dry | 137g |
+| Lunch | Rice, raw | 74g |
+| Dinner | Salmon, Atlantic, raw | 348g |
+| Dinner | Protein pasta, dry | 106g |
 
-Lunch: 389g of food. Dinner: 482g of food.
+Lunch: 413g of food. Dinner: 454g of food.
 
-Both types land on ~180g protein / ~195g carb / ~56g fat / ~2000-2015 cal.
+Both types land on ~180g protein / ~195g carb / ~56g fat / ~2016-2020 cal.
 
 ## Design Notes / Constraints Applied
+- **Why rice/pasta/protein amounts differ so much between the two types now:** breakfast (yogurt/granola/fruit) used to be the flexible piece that absorbed the difference between a chicken day and a salmon day — now that it's fixed at 200/40/200g every day, that slack has to come from somewhere else. Rice and pasta (the only other carb sources) and the dinner protein amount are what flex instead: chicken days need much more pasta (158g vs 106g) and much less rice (31g vs 74g) than salmon days, because salmon's higher fat density needs less mass to hit the fat target, which frees up more of the carb budget for rice instead of pasta.
 - **Why chicken+salmon (no tuna) isn't used as a day pairing:** both chicken (25p/11f) and salmon (20.3p/13.1f) are relatively fat-heavy per gram of protein. Once rice/pasta/breakfast eat into the fat budget, the protein-to-fat ratio still needed from the day's proteins comes out *higher* than either chicken or salmon can supply alone — and mixing two foods that are both too low on that ratio can never average to something higher than the higher of the two. The math only works out with tuna (nearly pure protein, ~40:1 protein:fat ratio) in the mix, pulling the average up to where it needs to be. Tuna is locked to lunch anyway (not paired with pasta), so it ended up as the fixed lunch anchor with chicken/salmon rotating at dinner.
-- **Why the tuna amount jumps between 1 can (Type A) and 3 cans (Type B):** salmon's higher fat density means less of it is needed to hit the fat target than chicken, but that also means less protein comes along with it — tuna has to make up the difference. More tuna at lunch is what keeps yogurt from ballooning on salmon days (an earlier version without extra tuna needed ~380-590g of yogurt to compensate instead).
+- **Why the tuna amount jumps between 1 can (Type A) and 3 cans (Type B):** salmon's higher fat density means less of it is needed to hit the fat target than chicken, but that also means less protein comes along with it — tuna has to make up the difference.
 - Chicken breast, ground beef, and mixing proteins within a single meal are still out of rotation — one protein per meal, as before.
 
 ## Weekly Grocery List
 
 | Item | Amount | Notes |
 |---|---|---|
-| Chicken thigh, boneless skinless (raw) | 2240g (4.94 lb) | 420g cooked × 4 days ÷ 0.75 cooking yield |
-| Salmon, Atlantic, raw | 1035g (2.28 lb) | 345g × 3 days |
+| Chicken thigh, boneless skinless (raw) | 2224g (4.90 lb) | 417g cooked × 4 days ÷ 0.75 cooking yield |
+| Salmon, Atlantic, raw | 1044g (2.30 lb) | 348g × 3 days |
 | Tuna, canned in water (drained) | 1469g | ~13 cans total (1×4 + 3×3) |
-| Rice, raw (white) | 350g (0.77 lb) | 50g × 7 days |
-| Protein pasta, dry | 943g | |
-| Greek yogurt (Oikos Triple Zero Vanilla) | 1396g | 223g × 4 (Type A) + 168g × 3 (Type B) |
+| Rice, raw (white) | 346g (0.76 lb) | 31g × 4 (Type A) + 74g × 3 (Type B) |
+| Protein pasta, dry | 950g | 158g × 4 (Type A) + 106g × 3 (Type B) |
+| Greek yogurt (Oikos Triple Zero Vanilla) | 1400g | 200g × 7 days — standardized |
 | Granola | 280g | |
 | Mixed fruit (apple, orange, blueberries, banana, strawberry) | 1400g | ~2 apples, 2 oranges, 1 cup blueberries, 2 bananas, 1 lb strawberries |
 
 ## Weekly Totals
-- Protein: ~1261g
+- Protein: ~1260g
 - Carbs: ~1366g
 - Fat: ~392g
 - Calories: ~14,120

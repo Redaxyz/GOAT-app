@@ -18,21 +18,19 @@ const CHICKEN_COOKING_YIELD = 0.75;
 type ProteinKind = "chicken" | "salmon" | "tuna";
 
 type DayType = {
-  yogurt: number; // g
   lunch: { protein: ProteinKind; item: string; amount: number; rice: number };
   dinner: { protein: ProteinKind; item: string; amount: number; pasta: number };
 };
 
 const GRANOLA_DAILY = 40; // g, same every day
 const FRUIT_DAILY = 200; // g, same every day
-const RICE_LUNCH_DAILY = 50; // g raw, same every day
+const YOGURT_DAILY = 200; // g, same every day — standardized, no longer a per-day-type variable
 
 // Lunch is always tuna + rice — tuna never goes with the pasta dinner.
-// Dinner alternates chicken/salmon for variety and is always the bigger
-// meal: lunch stays light to avoid afternoon-work lethargy and to keep food
-// out of the system before the after-work gym/run; dinner (after the gym)
-// has no more exercise to work around, so it carries most of the day's fat
-// and a large share of the protein.
+// Dinner alternates chicken/salmon for variety. With yogurt/granola/fruit
+// all fixed the same every day, rice/pasta/protein amounts are what absorb
+// the difference between chicken and salmon days to keep hitting the exact
+// macro targets.
 //
 // Each day's numbers are solved independently (not just scaled) so every day
 // lands on the exact 180p/195c/56f/~2000cal targets regardless of which
@@ -40,14 +38,12 @@ const RICE_LUNCH_DAILY = 50; // g raw, same every day
 // protein:fat ratio, so the portions aren't interchangeable.
 const DAY_TYPES: Record<"tunaChicken" | "tunaSalmon", DayType> = {
   tunaChicken: {
-    yogurt: 223,
-    lunch: { protein: "tuna", item: "Tuna, canned in water (drained)", amount: 113, rice: RICE_LUNCH_DAILY },
-    dinner: { protein: "chicken", item: "Chicken thigh, cooked", amount: 420, pasta: 133 },
+    lunch: { protein: "tuna", item: "Tuna, canned in water (drained)", amount: 113, rice: 31 },
+    dinner: { protein: "chicken", item: "Chicken thigh, cooked", amount: 417, pasta: 158 },
   },
   tunaSalmon: {
-    yogurt: 168,
-    lunch: { protein: "tuna", item: "Tuna, canned in water (drained)", amount: 339, rice: RICE_LUNCH_DAILY },
-    dinner: { protein: "salmon", item: "Salmon, Atlantic, raw", amount: 345, pasta: 137 },
+    lunch: { protein: "tuna", item: "Tuna, canned in water (drained)", amount: 339, rice: 74 },
+    dinner: { protein: "salmon", item: "Salmon, Atlantic, raw", amount: 348, pasta: 106 },
   },
 };
 
@@ -70,7 +66,6 @@ const weeklySalmonRaw = weeklySum((d) => (d.dinner.protein === "salmon" ? d.dinn
 const weeklyTuna = weeklySum((d) => d.lunch.amount);
 const weeklyRice = weeklySum((d) => d.lunch.rice);
 const weeklyPasta = weeklySum((d) => d.dinner.pasta);
-const weeklyYogurt = weeklySum((d) => d.yogurt);
 
 // Weekly grocery list, derived from the day-by-day plan above. Chicken is
 // converted from cooked meal weight to raw purchase weight.
@@ -84,7 +79,7 @@ export const BASELINE_GROCERY = [
   { item: "Tuna, canned in water (drained)", amount: weeklyTuna, unit: "g" },
   { item: "Rice, raw (white)", amount: weeklyRice, unit: "g" },
   { item: "Protein pasta, dry", amount: weeklyPasta, unit: "g" },
-  { item: "Greek yogurt (Oikos Triple Zero Vanilla)", amount: weeklyYogurt, unit: "g" },
+  { item: "Greek yogurt (Oikos Triple Zero Vanilla)", amount: YOGURT_DAILY * WEEKLY_MEAL_PLAN.length, unit: "g" },
   { item: "Granola", amount: GRANOLA_DAILY * WEEKLY_MEAL_PLAN.length, unit: "g" },
   { item: "Mixed fruit", amount: FRUIT_DAILY * WEEKLY_MEAL_PLAN.length, unit: "g" },
 ] as const;
@@ -123,7 +118,7 @@ export function getMealPlan(scaleFactor: number) {
     return {
       day,
       breakfast: [
-        { item: "Greek yogurt (Oikos Triple Zero Vanilla)", amount: scale(t.yogurt), unit: "g" },
+        { item: "Greek yogurt (Oikos Triple Zero Vanilla)", amount: scale(YOGURT_DAILY), unit: "g" },
         { item: "Granola", amount: scale(GRANOLA_DAILY), unit: "g" },
         { item: "Mixed fruit", amount: scale(FRUIT_DAILY), unit: "g" },
       ],
