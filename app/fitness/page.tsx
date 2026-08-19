@@ -4,10 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { submitLift, submitCardio, updateWorkoutDayPlans } from "@/app/actions";
 import { suggestNextLift, suggestNextRun, suggestNextBike, DEFAULT_WEIGHT_INCREMENT_LB } from "@/lib/overload";
 import { mergeLiftDays, RUN_WEEKDAYS, BIKE_WEEKDAY, type DayKey, type LiftDayDef } from "@/lib/schedule";
-import { today, formatDateLabel, dayOfWeekIndex } from "@/lib/date";
+import { today, formatDateLabel, dayOfWeekIndex, toDateInputValue } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
 import { PencilIcon } from "@/app/components/icons";
 import Row from "@/app/components/Row";
+import SubmitButton from "@/app/components/SubmitButton";
 
 export default async function FitnessPage({ searchParams }: { searchParams: Promise<{ edit?: string }> }) {
   const profile = await requireActiveProfile();
@@ -43,8 +44,15 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   const runSuggestion = suggestNextRun(latestRun);
   const bikeSuggestion = suggestNextBike(bikeLogs);
 
-  const todayWeekday = dayOfWeekIndex(today());
+  const todayStr = today();
+  const todayWeekday = dayOfWeekIndex(todayStr);
   const allExercises = Array.from(new Set(liftDays.flatMap((d) => d.exercises)));
+
+  // Once today's session is already logged, the suggestion is for the *next*
+  // session, not today's — otherwise a just-logged run shows its own
+  // incremented follow-up target mislabeled as "today's target".
+  const ranToday = latestRun != null && toDateInputValue(latestRun.date) === todayStr;
+  const bikedToday = latestBike != null && toDateInputValue(latestBike.date) === todayStr;
 
   return (
     <div className="space-y-10">
@@ -80,8 +88,8 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
           </div>
         ))}
 
-        <CardioRow label="Run" isToday={RUN_WEEKDAYS.includes(todayWeekday)} lastLog={latestRun} suggestion={runSuggestion} />
-        <CardioRow label="Bike" isToday={todayWeekday === BIKE_WEEKDAY} lastLog={latestBike} suggestion={bikeSuggestion} />
+        <CardioRow label="Run" isToday={RUN_WEEKDAYS.includes(todayWeekday)} doneToday={ranToday} lastLog={latestRun} suggestion={runSuggestion} />
+        <CardioRow label="Bike" isToday={todayWeekday === BIKE_WEEKDAY} doneToday={bikedToday} lastLog={latestBike} suggestion={bikeSuggestion} />
       </section>
 
       <section className="grid sm:grid-cols-2 gap-x-10 gap-y-10">
@@ -163,12 +171,9 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
                 className="w-24 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
               />
             </Row>
-            <button
-              type="submit"
-              className="w-full mt-6 px-6 py-3.5 rounded-full bg-theme-accent text-theme-own text-base font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition"
-            >
+            <SubmitButton className="w-full mt-6 px-6 py-3.5 rounded-full bg-theme-accent text-theme-own text-base font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
               Log lift
-            </button>
+            </SubmitButton>
           </form>
         </div>
 
@@ -226,12 +231,9 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
                 className="w-24 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
               />
             </Row>
-            <button
-              type="submit"
-              className="w-full mt-6 px-6 py-3.5 rounded-full bg-theme-accent text-theme-own text-base font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition"
-            >
+            <SubmitButton className="w-full mt-6 px-6 py-3.5 rounded-full bg-theme-accent text-theme-own text-base font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
               Log cardio
-            </button>
+            </SubmitButton>
           </form>
         </div>
       </section>
@@ -299,12 +301,9 @@ function EditView({ liftDays }: { liftDays: LiftDayDef[] }) {
             />
           </div>
         ))}
-        <button
-          type="submit"
-          className="w-full px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition"
-        >
+        <SubmitButton className="w-full px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
           Save workout days
-        </button>
+        </SubmitButton>
       </form>
     </div>
   );
@@ -356,19 +355,25 @@ function LiftRow({
 function CardioRow({
   label,
   isToday,
+  doneToday,
   lastLog,
   suggestion,
 }: {
   label: string;
   isToday: boolean;
+  doneToday: boolean;
   lastLog: { distanceKm: number } | null;
   suggestion: { distanceKm: number; rationale: string };
 }) {
+  // Once today's scheduled session is already logged, the suggestion is for
+  // the *next* session — showing it as "today's target" would misleadingly
+  // imply today's run/ride still needs to happen.
+  const targetLabel = isToday && !doneToday ? "Today's target" : "Next target";
   return (
     <div className="py-3.5 border-b-2 border-theme-accent/15">
       <div className="text-lg font-extrabold mb-1">
         {label}
-        {isToday && <span className="ml-2 text-xs font-bold opacity-60 normal-case">• Today</span>}
+        {isToday && <span className="ml-2 text-xs font-bold opacity-60 normal-case">• {doneToday ? "Done today" : "Today"}</span>}
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -376,7 +381,7 @@ function CardioRow({
           <div className="font-bold opacity-70">{lastLog ? `${lastLog.distanceKm}km` : "Not logged yet"}</div>
         </div>
         <div>
-          <div className="text-xs font-bold opacity-50 uppercase tracking-wide">{isToday ? "Today's target" : "Next target"}</div>
+          <div className="text-xs font-bold opacity-50 uppercase tracking-wide">{targetLabel}</div>
           <div className="font-bold opacity-70">{suggestion.distanceKm}km</div>
         </div>
       </div>

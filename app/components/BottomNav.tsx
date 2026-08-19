@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { switchProfile } from "@/app/actions";
 import { HomeIcon, ChartIcon, CartIcon, DumbbellIcon, SwitchProfileIcon } from "@/app/components/icons";
+import SubmitButton from "@/app/components/SubmitButton";
 
 type IconType = ComponentType<{ className?: string }>;
 type TabItem =
@@ -30,15 +31,15 @@ export default function BottomNav({ mirrored }: { mirrored: boolean }) {
           if (item.kind === "switch") {
             return (
               <form key={item.key} action={switchProfile} className="flex-1">
-                <button
-                  type="submit"
+                <SubmitButton
+                  swapLabel={false}
+                  className="w-full flex flex-col items-center gap-1.5 py-3.5 text-xs font-bold opacity-60 hover:opacity-100 active:scale-95 transition"
                   aria-label="Switch profile"
                   title="Switch profile"
-                  className="w-full flex flex-col items-center gap-1.5 py-3.5 text-xs font-bold opacity-60 hover:opacity-100 active:scale-95 transition"
                 >
                   <SwitchProfileIcon className="w-7 h-7" />
                   {item.label}
-                </button>
+                </SubmitButton>
               </form>
             );
           }

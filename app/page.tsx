@@ -6,6 +6,7 @@ import { kgToLb } from "@/lib/units";
 import Link from "next/link";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/app/components/icons";
 import Row from "@/app/components/Row";
+import SubmitButton from "@/app/components/SubmitButton";
 
 export default async function HomePage({
   searchParams,
@@ -82,9 +83,7 @@ export default async function HomePage({
             <input type="hidden" name="date" value={selectedDate} />
             <YesNoRow name="stuckToMealPlan" label="Stuck to meal plan" value={existing?.stuckToMealPlan} />
             <YesNoRow name="stuckToFitnessPlan" label="Stuck to fitness plan" value={existing?.stuckToFitnessPlan} />
-            <NumberRow name="sleepScore" label="Sleep score" defaultValue={existing?.sleepScore} />
-            <NumberRow name="recoveryScore" label="Recovery score" defaultValue={existing?.recoveryScore} />
-            <NumberRow name="bmrReadingKcal" label="BMR reading (kcal)" defaultValue={existing?.bmrReadingKcal} />
+            <NumberRow name="bmrReadingKcal" label="Calories burned today" defaultValue={existing?.bmrReadingKcal} />
             {sunday && (
               <NumberRow
                 name="weightLb"
@@ -95,20 +94,15 @@ export default async function HomePage({
             )}
             <NotesRow defaultValue={existing?.notes} />
 
-            <button
-              type="submit"
-              className="w-full mt-8 px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition"
-            >
+            <SubmitButton className="w-full mt-8 px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
               Save check-in
-            </button>
+            </SubmitButton>
           </form>
         ) : (
           <div>
             <DisplayRow label="Stuck to meal plan" value={existing ? (existing.stuckToMealPlan ? "Yes" : "No") : "—"} />
             <DisplayRow label="Stuck to fitness plan" value={existing ? (existing.stuckToFitnessPlan ? "Yes" : "No") : "—"} />
-            <DisplayRow label="Sleep score" value={existing?.sleepScore ?? "—"} />
-            <DisplayRow label="Recovery score" value={existing?.recoveryScore ?? "—"} />
-            <DisplayRow label="BMR reading (kcal)" value={existing?.bmrReadingKcal ?? "—"} />
+            <DisplayRow label="Calories burned today" value={existing?.bmrReadingKcal ?? "—"} />
             {sunday && <DisplayRow label="Weight (lb)" value={weightLog ? kgToLb(weightLog.weightKg) : "—"} />}
             <NotesDisplayRow value={existing?.notes || "—"} />
           </div>

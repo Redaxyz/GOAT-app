@@ -6,6 +6,7 @@ import { today, toDateInputValue } from "@/lib/date";
 import { cmToFeetInches, kgToLb } from "@/lib/units";
 import WeightChart from "@/app/components/WeightChart";
 import Row from "@/app/components/Row";
+import SubmitButton from "@/app/components/SubmitButton";
 
 function toInputDate(date: Date | null): string {
   return date ? toDateInputValue(date) : "";
@@ -97,12 +98,9 @@ export default async function ProgressPage() {
               className="w-28 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
             />
           </Row>
-          <button
-            type="submit"
-            className="w-full mt-6 px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition"
-          >
+          <SubmitButton className="w-full mt-6 px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
             Log weight
-          </button>
+          </SubmitButton>
         </form>
       </section>
 
@@ -187,12 +185,9 @@ export default async function ProgressPage() {
               className="text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
             />
           </Row>
-          <button
-            type="submit"
-            className="w-full mt-6 px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition"
-          >
+          <SubmitButton className="w-full mt-6 px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
             Save goal settings
-          </button>
+          </SubmitButton>
         </form>
       </section>
     </div>

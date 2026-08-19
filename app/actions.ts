@@ -50,8 +50,6 @@ export async function submitCheckIn(formData: FormData) {
     update: {
       stuckToMealPlan,
       stuckToFitnessPlan,
-      sleepScore: optionalNumber(formData, "sleepScore"),
-      recoveryScore: optionalNumber(formData, "recoveryScore"),
       bmrReadingKcal: optionalNumber(formData, "bmrReadingKcal"),
       notes: (formData.get("notes") as string) || null,
     },
@@ -60,8 +58,6 @@ export async function submitCheckIn(formData: FormData) {
       date,
       stuckToMealPlan,
       stuckToFitnessPlan,
-      sleepScore: optionalNumber(formData, "sleepScore"),
-      recoveryScore: optionalNumber(formData, "recoveryScore"),
       bmrReadingKcal: optionalNumber(formData, "bmrReadingKcal"),
       notes: (formData.get("notes") as string) || null,
     },
