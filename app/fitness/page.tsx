@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { submitLift, submitCardio, updateWorkoutDayPlans } from "@/app/actions";
 import { suggestNextLift, suggestNextRun, suggestNextBike, DEFAULT_WEIGHT_INCREMENT_LB } from "@/lib/overload";
 import { mergeLiftDays, RUN_WEEKDAYS, BIKE_WEEKDAY, type DayKey, type LiftDayDef } from "@/lib/schedule";
-import { today, formatDateLabel, dayOfWeekIndex, toDateInputValue } from "@/lib/date";
+import { today, formatDateLabel, dayOfWeekIndex, toDateInputValue, dateOnly } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
 import { PencilIcon } from "@/app/components/icons";
 import Row from "@/app/components/Row";
@@ -53,6 +53,15 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   // incremented follow-up target mislabeled as "today's target".
   const ranToday = latestRun != null && toDateInputValue(latestRun.date) === todayStr;
   const bikedToday = latestBike != null && toDateInputValue(latestBike.date) === todayStr;
+  const loggedToday = (name: string) => {
+    const log = latestByExercise.get(name);
+    return log != null && toDateInputValue(log.date) === todayStr;
+  };
+
+  const todayLiftDay = liftDays.find((d) => d.weekday === todayWeekday) ?? null;
+  const isRunDay = RUN_WEEKDAYS.includes(todayWeekday);
+  const isBikeDay = todayWeekday === BIKE_WEEKDAY;
+  const otherLiftDays = liftDays.filter((d) => d.weekday !== todayWeekday);
 
   return (
     <div className="space-y-10">
@@ -69,27 +78,76 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
           </Link>
         </div>
 
+        <div className="border-2 border-theme-accent rounded-3xl p-5 mb-8 bg-theme-accent/5">
+          <div className="text-xs font-bold uppercase tracking-wide text-theme-accent mb-1">
+            Today — {formatDateLabel(dateOnly(todayStr))}
+          </div>
+          <h2 className="text-xl font-extrabold mb-1">
+            {todayLiftDay ? todayLiftDay.label : isRunDay ? "Run day" : isBikeDay ? "Bike day" : "Rest day"}
+          </h2>
+
+          {todayLiftDay &&
+            todayLiftDay.exercises.map((name) => (
+              <LiftRow
+                key={name}
+                name={name}
+                lastLog={latestByExercise.get(name) ?? null}
+                isToday
+                doneToday={loggedToday(name)}
+                incrementLb={incrementByExercise.get(name) ?? DEFAULT_WEIGHT_INCREMENT_LB}
+                logForm
+                todayStr={todayStr}
+              />
+            ))}
+
+          {isRunDay && (
+            <CardioRow
+              label="Run"
+              isToday
+              doneToday={ranToday}
+              lastLog={latestRun}
+              suggestion={runSuggestion}
+              logForm
+              todayStr={todayStr}
+              cardioType="RUN"
+            />
+          )}
+
+          {isBikeDay && (
+            <CardioRow
+              label="Bike"
+              isToday
+              doneToday={bikedToday}
+              lastLog={latestBike}
+              suggestion={bikeSuggestion}
+              logForm
+              todayStr={todayStr}
+              cardioType="BIKE"
+            />
+          )}
+
+          {!todayLiftDay && !isRunDay && !isBikeDay && <p className="text-base font-bold opacity-60 mt-2">No scheduled workout today.</p>}
+        </div>
+
         <h2 className="text-lg font-extrabold mb-3">Suggested next targets</h2>
-        {liftDays.map((day) => (
+        {otherLiftDays.map((day) => (
           <div key={day.dayKey} className="mb-5">
-            <div className="text-sm font-bold opacity-60 uppercase tracking-wide mb-1">
-              {day.label}
-              {day.weekday === todayWeekday && <span className="ml-2 normal-case opacity-100">• Today</span>}
-            </div>
+            <div className="text-sm font-bold opacity-60 uppercase tracking-wide mb-1">{day.label}</div>
             {day.exercises.map((name) => (
               <LiftRow
                 key={name}
                 name={name}
                 lastLog={latestByExercise.get(name) ?? null}
-                isToday={day.weekday === todayWeekday}
+                isToday={false}
+                doneToday={false}
                 incrementLb={incrementByExercise.get(name) ?? DEFAULT_WEIGHT_INCREMENT_LB}
               />
             ))}
           </div>
         ))}
 
-        <CardioRow label="Run" isToday={RUN_WEEKDAYS.includes(todayWeekday)} doneToday={ranToday} lastLog={latestRun} suggestion={runSuggestion} />
-        <CardioRow label="Bike" isToday={todayWeekday === BIKE_WEEKDAY} doneToday={bikedToday} lastLog={latestBike} suggestion={bikeSuggestion} />
+        {!isRunDay && <CardioRow label="Run" isToday={false} doneToday={false} lastLog={latestRun} suggestion={runSuggestion} />}
+        {!isBikeDay && <CardioRow label="Bike" isToday={false} doneToday={false} lastLog={latestBike} suggestion={bikeSuggestion} />}
       </section>
 
       <section className="grid sm:grid-cols-2 gap-x-10 gap-y-10">
@@ -313,16 +371,26 @@ function LiftRow({
   name,
   lastLog,
   isToday,
+  doneToday,
   incrementLb,
+  logForm = false,
+  todayStr,
 }: {
   name: string;
   lastLog: { weightKg: number; reps: number; sets: number } | null;
   isToday: boolean;
+  doneToday: boolean;
   incrementLb: number;
+  logForm?: boolean;
+  todayStr?: string;
 }) {
   const suggestion = lastLog
     ? suggestNextLift({ weightLb: kgToLb(lastLog.weightKg), reps: lastLog.reps, sets: lastLog.sets }, incrementLb)
     : null;
+  // Once today's set is already logged, the suggestion is for the *next*
+  // session — showing it as "today's target" would misleadingly imply
+  // today's set still needs to happen.
+  const targetLabel = isToday && !doneToday ? "Today's target" : "Next target";
   return (
     <div className="py-3.5 border-b-2 border-theme-accent/15">
       <div className="text-lg font-extrabold mb-1">{name}</div>
@@ -338,7 +406,7 @@ function LiftRow({
           )}
         </div>
         <div>
-          <div className="text-xs font-bold opacity-50 uppercase tracking-wide">{isToday ? "Today's target" : "Next target"}</div>
+          <div className="text-xs font-bold opacity-50 uppercase tracking-wide">{targetLabel}</div>
           {suggestion ? (
             <div className="font-bold opacity-70">
               {suggestion.weightLb}lb × {suggestion.reps} × {suggestion.sets}
@@ -348,6 +416,19 @@ function LiftRow({
           )}
         </div>
       </div>
+
+      {logForm && todayStr && (
+        <form action={submitLift} className="flex items-end gap-2 flex-wrap mt-3">
+          <input type="hidden" name="date" value={todayStr} />
+          <input type="hidden" name="exerciseName" value={name} />
+          <InlineNumberField label="lb" name="weightLb" step="0.5" defaultValue={suggestion?.weightLb} />
+          <InlineNumberField label="reps" name="reps" defaultValue={suggestion?.reps} />
+          <InlineNumberField label="sets" name="sets" defaultValue={suggestion?.sets} />
+          <SubmitButton className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
+            Log
+          </SubmitButton>
+        </form>
+      )}
     </div>
   );
 }
@@ -358,12 +439,18 @@ function CardioRow({
   doneToday,
   lastLog,
   suggestion,
+  logForm = false,
+  todayStr,
+  cardioType,
 }: {
   label: string;
   isToday: boolean;
   doneToday: boolean;
   lastLog: { distanceKm: number } | null;
   suggestion: { distanceKm: number; rationale: string };
+  logForm?: boolean;
+  todayStr?: string;
+  cardioType?: "RUN" | "BIKE";
 }) {
   // Once today's scheduled session is already logged, the suggestion is for
   // the *next* session — showing it as "today's target" would misleadingly
@@ -386,6 +473,46 @@ function CardioRow({
         </div>
       </div>
       <div className="text-sm font-semibold opacity-50 mt-1">{suggestion.rationale}</div>
+
+      {logForm && todayStr && cardioType && (
+        <form action={submitCardio} className="flex items-end gap-2 flex-wrap mt-3">
+          <input type="hidden" name="date" value={todayStr} />
+          <input type="hidden" name="type" value={cardioType} />
+          <InlineNumberField label="km" name="distanceKm" step="0.1" defaultValue={suggestion.distanceKm} />
+          <InlineNumberField label="min" name="durationMin" step="1" required={false} />
+          <SubmitButton className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
+            Log
+          </SubmitButton>
+        </form>
+      )}
     </div>
+  );
+}
+
+function InlineNumberField({
+  label,
+  name,
+  defaultValue,
+  step,
+  required = true,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: number;
+  step?: string;
+  required?: boolean;
+}) {
+  return (
+    <label className="flex flex-col text-[10px] font-bold opacity-50 uppercase tracking-wide">
+      {label}
+      <input
+        type="number"
+        name={name}
+        step={step}
+        required={required}
+        defaultValue={defaultValue ?? ""}
+        className="w-16 text-center text-base font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1 mt-0.5"
+      />
+    </label>
   );
 }
