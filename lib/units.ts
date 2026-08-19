@@ -2,7 +2,7 @@ const CM_PER_INCH = 2.54;
 
 export function cmToFeetInches(cm: number | null): { feet: number; inches: number } {
   if (cm == null) return { feet: 0, inches: 0 };
-  const totalInches = Math.round(cm / CM_PER_INCH);
+  const totalInches = Math.round((cm / CM_PER_INCH) * 2) / 2; // nearest half inch
   return { feet: Math.floor(totalInches / 12), inches: totalInches % 12 };
 }
 

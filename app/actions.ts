@@ -94,6 +94,37 @@ export async function submitWeight(formData: FormData) {
   revalidatePath("/progress");
 }
 
+/** Ownership check shared by edit/delete — a WeightLog id only belongs to the caller if it matches their active profile. */
+async function requireOwnedWeightLog(id: string, profileId: string) {
+  const existing = await prisma.weightLog.findUnique({ where: { id } });
+  if (!existing || existing.profileId !== profileId) throw new Error("Weight entry not found");
+  return existing;
+}
+
+export async function updateWeightEntry(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const id = requireString(formData, "id");
+  await requireOwnedWeightLog(id, profile.id);
+
+  const weightKg = lbToKg(Number(requireString(formData, "weightLb")));
+  await prisma.weightLog.update({ where: { id }, data: { weightKg } });
+
+  revalidatePath("/progress");
+}
+
+export async function deleteWeightEntry(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const id = requireString(formData, "id");
+  await requireOwnedWeightLog(id, profile.id);
+
+  await prisma.weightLog.delete({ where: { id } });
+  revalidatePath("/progress");
+}
+
 export async function submitLift(formData: FormData) {
   const profile = await getActiveProfile();
   if (!profile) throw new Error("No active profile");

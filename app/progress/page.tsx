@@ -5,6 +5,7 @@ import { computePace } from "@/lib/progress";
 import { today, toDateInputValue } from "@/lib/date";
 import { cmToFeetInches, kgToLb } from "@/lib/units";
 import WeightChart from "@/app/components/WeightChart";
+import BmiCalculator from "@/app/components/BmiCalculator";
 import Row from "@/app/components/Row";
 import SubmitButton from "@/app/components/SubmitButton";
 
@@ -32,7 +33,9 @@ export default async function ProgressPage() {
 
   const pace = computePace(profile, logs);
   const height = cmToFeetInches(profile.heightCm);
-  const chartPoints = logs.map((l) => ({ date: l.date, weightLb: kgToLb(l.weightKg) }));
+  const chartPoints = logs.map((l) => ({ id: l.id, date: l.date, weightLb: kgToLb(l.weightKg) }));
+  const currentWeightLb =
+    pace.actualWeightKg != null ? kgToLb(pace.actualWeightKg) : profile.startWeightKg != null ? kgToLb(profile.startWeightKg) : 0;
 
   return (
     <div className="space-y-10">
@@ -67,6 +70,11 @@ export default async function ProgressPage() {
         </div>
 
         <WeightChart points={chartPoints} />
+      </section>
+
+      <section>
+        <h2 className="text-lg font-extrabold mb-3">BMI calculator</h2>
+        <BmiCalculator initialFeet={height.feet} initialInches={height.inches} initialWeightLb={currentWeightLb} />
       </section>
 
       <section>
@@ -126,7 +134,8 @@ export default async function ProgressPage() {
                 type="number"
                 name="heightInches"
                 min={0}
-                max={11}
+                max={11.5}
+                step={0.5}
                 defaultValue={height.inches || ""}
                 className="w-14 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
               />
