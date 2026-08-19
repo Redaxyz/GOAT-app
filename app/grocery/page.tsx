@@ -22,16 +22,9 @@ export default async function GroceryPage() {
         </div>
 
         <div>
+          <MacroHeaderRow />
           {groceryList.map((row) => (
-            <div
-              key={row.item}
-              className="flex items-center justify-between gap-4 py-3.5 border-b-2 border-theme-accent/15 text-lg font-bold"
-            >
-              <span>{row.item}</span>
-              <span className="font-extrabold">
-                {row.amount} {row.unit}
-              </span>
-            </div>
+            <MacroRow key={row.item} item={row.item} amount={row.amount} unit={row.unit} carbG={row.carbG} proteinG={row.proteinG} fatG={row.fatG} />
           ))}
         </div>
       </section>
@@ -57,21 +50,71 @@ export default async function GroceryPage() {
   );
 }
 
-function MealBlock({ label, items }: { label: string; items: { item: string; amount: number; unit: string }[] }) {
+type MacroItem = { item: string; amount: number; unit: string; proteinG: number; carbG: number; fatG: number };
+
+function MealBlock({ label, items }: { label: string; items: MacroItem[] }) {
   return (
     <div className="mb-3">
       <div className="text-sm font-bold opacity-60 mb-1">{label}</div>
+      <MacroHeaderRow small />
       {items.map((item, i) => (
-        <div
+        <MacroRow
           key={i}
-          className="flex items-center justify-between gap-4 py-2 border-b-2 border-theme-accent/15 text-base font-bold"
-        >
-          <span>{item.item}</span>
-          <span className="font-extrabold">
-            {item.amount} {item.unit}
-          </span>
-        </div>
+          item={item.item}
+          amount={item.amount}
+          unit={item.unit}
+          carbG={item.carbG}
+          proteinG={item.proteinG}
+          fatG={item.fatG}
+          small
+        />
       ))}
+    </div>
+  );
+}
+
+const GRID_COLS = "grid-cols-[1fr_4.5rem_2.25rem_2.25rem_2.25rem]";
+
+function MacroHeaderRow({ small = false }: { small?: boolean }) {
+  return (
+    <div className={`grid ${GRID_COLS} items-center gap-2 ${small ? "pb-1" : "pb-2"} text-[10px] font-bold uppercase tracking-wide opacity-50`}>
+      <span />
+      <span className="text-right">Wt</span>
+      <span className="text-right">C</span>
+      <span className="text-right">P</span>
+      <span className="text-right">F</span>
+    </div>
+  );
+}
+
+function MacroRow({
+  item,
+  amount,
+  unit,
+  carbG,
+  proteinG,
+  fatG,
+  small = false,
+}: {
+  item: string;
+  amount: number;
+  unit: string;
+  carbG: number;
+  proteinG: number;
+  fatG: number;
+  small?: boolean;
+}) {
+  return (
+    <div
+      className={`grid ${GRID_COLS} items-center gap-2 ${small ? "py-2 text-base" : "py-3.5 text-lg"} border-b-2 border-theme-accent/15 font-bold`}
+    >
+      <span className="truncate">{item}</span>
+      <span className="text-right font-extrabold whitespace-nowrap">
+        {amount} {unit}
+      </span>
+      <span className="text-right text-sm opacity-70">{carbG}C</span>
+      <span className="text-right text-sm opacity-70">{proteinG}P</span>
+      <span className="text-right text-sm opacity-70">{fatG}F</span>
     </div>
   );
 }
