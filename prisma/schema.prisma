@@ -37,6 +37,7 @@ model Profile {
   cardioLogs         CardioLog[]
   workoutDayPlans    WorkoutDayPlan[]
   exerciseIncrements ExerciseIncrement[]
+  scheduleOverrides  ScheduleOverride[]
 
   @@map("profiles")
 }
@@ -131,6 +132,25 @@ model WorkoutDayPlan {
 
   @@unique([profileId, dayKey])
   @@map("workout_day_plans")
+}
+
+// ---- Fitness: per-date schedule swaps -------------------------------------
+// The two-week gym/run/bike cycle (see lib/schedule.ts) has a fixed default,
+// but a specific date's type can be swapped on the fly (e.g. gym instead of
+// a scheduled run). dayType is "GYM" | "RUN" | "BIKE" | "REST".
+
+model ScheduleOverride {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date      DateTime
+  dayType   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, date])
+  @@map("schedule_overrides")
 }
 
 // ---- Fitness: cardio (run / bike) ----------------------------------------

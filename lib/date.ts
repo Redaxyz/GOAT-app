@@ -36,6 +36,12 @@ export function dayOfWeekIndex(isoDate: string): number {
   return dateOnly(isoDate).getUTCDay();
 }
 
+/** Whole days from `from` to `to` (positive if `to` is later). Both are "YYYY-MM-DD". */
+export function daysBetween(from: string, to: string): number {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.round((dateOnly(to).getTime() - dateOnly(from).getTime()) / msPerDay);
+}
+
 export function isSunday(isoDate: string): boolean {
   return dayOfWeekIndex(isoDate) === 0;
 }

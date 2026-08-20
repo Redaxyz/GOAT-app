@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getActiveProfile, setActiveProfileCookie, clearActiveProfileCookie, ensureProfilesSeeded } from "@/lib/session";
 import { feetInchesToCm, lbToKg, kgToLb } from "@/lib/units";
-import { DEFAULT_LIFT_DAYS, parseExercisesText, type DayKey } from "@/lib/schedule";
+import { DEFAULT_LIFT_DAYS, parseExercisesText, type DayKey, type ScheduleDayType } from "@/lib/schedule";
 import { dateOnly } from "@/lib/date";
 import type { ProfileSlug, CardioType } from "@/lib/types";
 
@@ -177,6 +177,35 @@ export async function submitCardio(formData: FormData) {
       durationMin: optionalNumber(formData, "durationMin"),
     },
   });
+
+  revalidatePath("/fitness");
+}
+
+/** Swap a specific date's schedule type (gym/run/bike/rest) on the fly. */
+export async function setScheduleOverride(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const date = dateOnly(requireString(formData, "date"));
+  const dayType = requireString(formData, "dayType") as ScheduleDayType;
+
+  await prisma.scheduleOverride.upsert({
+    where: { profileId_date: { profileId: profile.id, date } },
+    update: { dayType },
+    create: { profileId: profile.id, date, dayType },
+  });
+
+  revalidatePath("/fitness");
+}
+
+/** Revert a date back to its default two-week-cycle schedule. */
+export async function clearScheduleOverride(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const date = dateOnly(requireString(formData, "date"));
+
+  await prisma.scheduleOverride.deleteMany({ where: { profileId: profile.id, date } });
 
   revalidatePath("/fitness");
 }

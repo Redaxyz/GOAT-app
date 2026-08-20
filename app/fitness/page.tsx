@@ -1,24 +1,33 @@
 import Link from "next/link";
 import { requireActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { submitLift, submitCardio, updateWorkoutDayPlans } from "@/app/actions";
+import { submitLift, submitCardio, updateWorkoutDayPlans, setScheduleOverride, clearScheduleOverride } from "@/app/actions";
 import { suggestNextLift, suggestNextRun, suggestNextBike, DEFAULT_WEIGHT_INCREMENT_LB } from "@/lib/overload";
-import { mergeLiftDays, RUN_WEEKDAYS, BIKE_WEEKDAY, type DayKey, type LiftDayDef } from "@/lib/schedule";
-import { today, formatDateLabel, dayOfWeekIndex, toDateInputValue, dateOnly } from "@/lib/date";
+import {
+  mergeLiftDays,
+  effectiveEntryForDate,
+  SCHEDULE_TYPE_LABEL,
+  type DayKey,
+  type LiftDayDef,
+  type ScheduleDayType,
+} from "@/lib/schedule";
+import { today, formatDateLabel, toDateInputValue, dateOnly, addDays } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
 import { PencilIcon } from "@/app/components/icons";
 import Row from "@/app/components/Row";
 import SubmitButton from "@/app/components/SubmitButton";
+import MonthCalendar, { type CalendarCell } from "@/app/components/MonthCalendar";
 
 export default async function FitnessPage({ searchParams }: { searchParams: Promise<{ edit?: string }> }) {
   const profile = await requireActiveProfile();
   const { edit } = await searchParams;
 
-  const [lifts, cardio, dayPlanRows, incrementRows] = await Promise.all([
+  const [lifts, cardio, dayPlanRows, incrementRows, scheduleOverrideRows] = await Promise.all([
     prisma.liftLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
     prisma.cardioLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
     prisma.workoutDayPlan.findMany({ where: { profileId: profile.id } }),
     prisma.exerciseIncrement.findMany({ where: { profileId: profile.id } }),
+    prisma.scheduleOverride.findMany({ where: { profileId: profile.id } }),
   ]);
 
   const incrementByExercise = new Map(incrementRows.map((row) => [row.exerciseName, row.incrementLb]));
@@ -33,6 +42,11 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
     return <EditView liftDays={liftDays} />;
   }
 
+  const scheduleOverrideByDate = new Map<string, ScheduleDayType>();
+  for (const row of scheduleOverrideRows) {
+    scheduleOverrideByDate.set(toDateInputValue(row.date), row.dayType as ScheduleDayType);
+  }
+
   const latestByExercise = new Map<string, (typeof lifts)[number]>();
   for (const lift of lifts) {
     if (!latestByExercise.has(lift.exerciseName)) latestByExercise.set(lift.exerciseName, lift);
@@ -45,7 +59,6 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   const bikeSuggestion = suggestNextBike(bikeLogs);
 
   const todayStr = today();
-  const todayWeekday = dayOfWeekIndex(todayStr);
   const allExercises = Array.from(new Set(liftDays.flatMap((d) => d.exercises)));
 
   // Once today's session is already logged, the suggestion is for the *next*
@@ -58,10 +71,27 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
     return log != null && toDateInputValue(log.date) === todayStr;
   };
 
-  const todayLiftDay = liftDays.find((d) => d.weekday === todayWeekday) ?? null;
-  const isRunDay = RUN_WEEKDAYS.includes(todayWeekday);
-  const isBikeDay = todayWeekday === BIKE_WEEKDAY;
-  const otherLiftDays = liftDays.filter((d) => d.weekday !== todayWeekday);
+  const todayOverride = scheduleOverrideByDate.get(todayStr) ?? null;
+  const todayEntry = effectiveEntryForDate(todayStr, todayOverride);
+  const todayLiftDay = todayEntry.dayKey ? liftDays.find((d) => d.dayKey === todayEntry.dayKey) ?? null : null;
+  const isRunDay = todayEntry.type === "RUN";
+  const isBikeDay = todayEntry.type === "BIKE";
+  const isGenericGymDay = todayEntry.type === "GYM" && !todayLiftDay;
+  const otherLiftDays = liftDays.filter((d) => d.dayKey !== todayEntry.dayKey);
+
+  const calendarMonth = dateOnly(todayStr);
+  const year = calendarMonth.getUTCFullYear();
+  const month = calendarMonth.getUTCMonth();
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const firstOfMonthStr = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+  const leadingBlanks = dateOnly(firstOfMonthStr).getUTCDay();
+  const calendarCells: CalendarCell[] = Array.from({ length: daysInMonth }, (_, i) => {
+    const date = addDays(firstOfMonthStr, i);
+    const override = scheduleOverrideByDate.get(date) ?? null;
+    const entry = effectiveEntryForDate(date, override);
+    return { date, day: i + 1, type: entry.type, isToday: date === todayStr, isOverridden: override != null };
+  });
+  const monthLabel = calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
 
   return (
     <div className="space-y-10">
@@ -78,13 +108,17 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
           </Link>
         </div>
 
+        <MonthCalendar monthLabel={monthLabel} cells={calendarCells} leadingBlanks={leadingBlanks} />
+
         <div className="border-2 border-theme-accent rounded-3xl p-5 mb-8 bg-theme-accent/5">
           <div className="text-xs font-bold uppercase tracking-wide text-theme-accent mb-1">
             Today — {formatDateLabel(dateOnly(todayStr))}
           </div>
           <h2 className="text-xl font-extrabold mb-1">
-            {todayLiftDay ? todayLiftDay.label : isRunDay ? "Run day" : isBikeDay ? "Bike day" : "Rest day"}
+            {todayLiftDay ? todayLiftDay.label : isRunDay ? "Run day" : isBikeDay ? "Bike day" : isGenericGymDay ? "Gym day" : "Rest day"}
           </h2>
+
+          <SwapDayControls todayStr={todayStr} activeType={todayEntry.type} isOverridden={todayOverride != null} />
 
           {todayLiftDay &&
             todayLiftDay.exercises.map((name) => (
@@ -99,6 +133,10 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
                 todayStr={todayStr}
               />
             ))}
+
+          {isGenericGymDay && (
+            <p className="text-base font-bold opacity-60 mt-2">No preset exercise list for today — log any lift below.</p>
+          )}
 
           {isRunDay && (
             <CardioRow
@@ -126,7 +164,7 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
             />
           )}
 
-          {!todayLiftDay && !isRunDay && !isBikeDay && <p className="text-base font-bold opacity-60 mt-2">No scheduled workout today.</p>}
+          {!todayLiftDay && !isRunDay && !isBikeDay && !isGenericGymDay && <p className="text-base font-bold opacity-60 mt-2">Rest day.</p>}
         </div>
 
         <h2 className="text-lg font-extrabold mb-3">Suggested next targets</h2>
@@ -363,6 +401,39 @@ function EditView({ liftDays }: { liftDays: LiftDayDef[] }) {
           Save workout days
         </SubmitButton>
       </form>
+    </div>
+  );
+}
+
+const SWAP_TYPES: ScheduleDayType[] = ["GYM", "RUN", "BIKE", "REST"];
+
+/** Lets today's schedule type be swapped on the fly — tap a different type to override, tap "Reset" to go back to the two-week default. */
+function SwapDayControls({ todayStr, activeType, isOverridden }: { todayStr: string; activeType: ScheduleDayType; isOverridden: boolean }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap mb-4 mt-1">
+      {SWAP_TYPES.map((t) => (
+        <form key={t} action={setScheduleOverride}>
+          <input type="hidden" name="date" value={todayStr} />
+          <input type="hidden" name="dayType" value={t} />
+          <button
+            type="submit"
+            disabled={t === activeType}
+            className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition active:scale-95 ${
+              t === activeType ? "bg-theme-accent text-theme-own" : "bg-theme-accent/10 hover:bg-theme-accent/20"
+            }`}
+          >
+            {SCHEDULE_TYPE_LABEL[t]}
+          </button>
+        </form>
+      ))}
+      {isOverridden && (
+        <form action={clearScheduleOverride}>
+          <input type="hidden" name="date" value={todayStr} />
+          <button type="submit" className="px-3 py-1.5 rounded-full text-xs font-bold opacity-50 hover:opacity-80 transition underline">
+            Reset
+          </button>
+        </form>
+      )}
     </div>
   );
 }

@@ -1,31 +1,46 @@
-// Fixed daily targets. The grocery page always uses these directly — it does
-// not scale by BMR check-in data.
+// Locked, 7-day meal plan — 2026-08 revision. Lunch is fixed at a real,
+// validated portion (350g chicken thigh / equivalent-protein ground beef —
+// not "as much as can be solved for" or "the most that can ever be eaten"),
+// and dinner is solved per day against whatever's left of the daily ceiling:
+// don't exceed 180p/164c/70f (BASELINE_TARGETS below — carbs were traded for
+// fat gram-for-gram on an isocaloric basis: +14g fat (9cal/g) ≈ -31g carb
+// (4cal/g), so total calories land close to the same ~2000 as before). Every
+// day picks whichever of {protein, fat} binds first for that day's dinner
+// protein and stops there — the other one lands with some slack rather than
+// being forced to hit exactly, so lunch and dinner both stay real, sized
+// portions instead of one meal swallowing the whole day's budget.
 export const BASELINE_TARGETS = {
   proteinG: 180,
-  carbsG: 195,
-  fatG: 56,
+  carbsG: 164,
+  fatG: 70,
   calories: 2000,
 };
 
 export const FRIEND_FACTOR = 0.95;
 
-// Chicken thigh loses ~25% of its weight to cooking; the grocery list needs
-// raw purchase weight even though meals are portioned by cooked weight.
-// Salmon and tuna are tracked at the weight actually eaten (raw fillet /
-// drained can) since that's the basis their macros were given in.
-const CHICKEN_COOKING_YIELD = 0.75;
+// Cooking yields — raw purchase weight ≈ cooked weight ÷ yield. Only used to
+// size the weekly grocery list; meals themselves are portioned by cooked
+// weight. Salmon needs no such conversion — tracked at raw weight, same as
+// it's eaten.
+const CHICKEN_THIGH_COOKING_YIELD = 0.75;
+const GROUND_BEEF_COOKING_YIELD = 0.75;
+const TOP_SIRLOIN_COOKING_YIELD = 0.75;
 
-// Per-100g macro rates, used both to size the plan and to show C/P/F columns
-// on the grocery page. Chicken's rate is on a *cooked* basis — always apply
-// it to cooked-equivalent grams, not raw purchase grams.
-const CHICKEN_PER_100G_COOKED = { protein: 25, carb: 0, fat: 11 };
+// Per-100g macro rates. Cooked-basis rates apply to cooked-equivalent grams,
+// not raw purchase grams — same convention as before.
+const CHICKEN_THIGH_PER_100G_COOKED = { protein: 25, carb: 0, fat: 11 };
+const GROUND_BEEF_93_7_PER_100G_COOKED = { protein: 28.2, carb: 0, fat: 8.1 }; // chosen over 90/10 — same protein at meaningfully less fat
+const TOP_SIRLOIN_PER_100G_COOKED = { protein: 29, carb: 0, fat: 8.5 };
 const SALMON_PER_100G_RAW = { protein: 20.3, carb: 0, fat: 13.1 };
-const TUNA_PER_100G_DRAINED = { protein: 17.699, carb: 0, fat: 0.4425 }; // 20p/0.5f per 113g can
-const RICE_PER_100G_RAW = { protein: 6.67, carb: 80, fat: 0.67 };
+const BASMATI_RICE_PER_100G_RAW = { protein: 7.13, carb: 78.13, fat: 0.44 };
 const PASTA_PER_100G_DRY = { protein: 17.637, carb: 67.022, fat: 1.7637 }; // 10p/38c/1f per 2oz/56.7g
+const RAO_SAUCE_PER_100G = { protein: 1.6, carb: 6.5, fat: 4.8 }; // Rao's Homemade, ~90cal/2p/8c/6f per 1/2 cup (124g) serving
 const YOGURT_PER_100G = { protein: 10, carb: 4.12, fat: 0 };
 const GRANOLA_PER_100G = { protein: 10, carb: 64, fat: 15 };
 const FRUIT_PER_100G = { protein: 0.9, carb: 15.5, fat: 0.3 };
+const EGG_PER_100G_COOKED = { protein: 12.6, carb: 1.2, fat: 9.6 }; // ~2 large eggs per 100g cooked
+const TOAST_PER_100G_BREAD = { protein: 12, carb: 50, fat: 4 }; // standard sandwich bread, ~25g/slice
+const AVOCADO_PER_100G = { protein: 2, carb: 8.5, fat: 14.7 };
 
 function macroGrams(amountG: number, per100g: { protein: number; carb: number; fat: number }) {
   return {
@@ -35,85 +50,55 @@ function macroGrams(amountG: number, per100g: { protein: number; carb: number; f
   };
 }
 
-type ProteinKind = "chicken" | "salmon" | "tuna";
+// ---- Fixed amounts (same every time that meal appears) -------------------
+const YOGURT_DAILY = 200;
+const GRANOLA_DAILY = 40;
+const FRUIT_DAILY = 200;
+const EGG_G = 100; // ~2 large eggs
+const TOAST_G = 25; // 1 slice
+const AVOCADO_G = 100; // ~1/2 avocado
+const LUNCH_RICE_G = 70; // raw basmati, every lunch
+const DINNER_SAUCE_G = 125; // Rao's tomato sauce, ~1/2 cup, every dinner
 
-type DayType = {
-  lunch: { protein: ProteinKind; item: string; amount: number; rice: number };
-  dinner: { protein: ProteinKind; item: string; amount: number; pasta: number };
-};
+// ---- Lunch: real, fixed portions — not solved, not maxed out -------------
+// 350g chicken thigh + 70g rice is the user's actual established lunch.
+// Ground beef's lunch amount matches it for protein (350g thigh = 87.5g
+// protein; 310g of 93/7 ground beef carries the same 87.5g) so both lunches
+// deliver comparable substance.
+const LUNCH_CHICKEN_THIGH_G = 350; // Mon/Wed/Fri
+const LUNCH_GROUND_BEEF_G = 310; // Tue/Thu/Sat/Sun — protein-equivalent to 350g chicken thigh
 
-const GRANOLA_DAILY = 40; // g, same every day
-const FRUIT_DAILY = 200; // g, same every day
-const YOGURT_DAILY = 200; // g, same every day — standardized, no longer a per-day-type variable
+// ---- Dinner: solved per day against what's left of 180p/164c/70f once
+// breakfast + lunch + rice + sauce are fixed. Each day, dinner's protein
+// source amount is set by whichever of {remaining protein, remaining fat}
+// is the tighter (smaller) constraint — that source stops there rather than
+// being pushed to hit both, so dinner is never squeezed to near-nothing
+// (weekday sirloin/salmon: protein binds first — dinner is protein-limited,
+// with some fat headroom left over. Weekend salmon/sirloin: the egg
+// breakfast's fat already eats most of the budget, so fat binds first
+// instead, and dinner protein comes in lower than weekdays as a result.)
+const DINNER_SIRLOIN_WEEKDAY_G = 173; // Mon/Wed/Fri
+const DINNER_SALMON_WEEKDAY_G = 229; // Tue/Thu
+const DINNER_PASTA_WEEKDAY_G = 54;
 
-// Lunch is always tuna + rice — tuna never goes with the pasta dinner.
-// Dinner alternates chicken/salmon for variety. With yogurt/granola/fruit
-// all fixed the same every day, rice/pasta/protein amounts are what absorb
-// the difference between chicken and salmon days to keep hitting the exact
-// macro targets.
-//
-// Each day's numbers are solved independently (not just scaled) so every day
-// lands on the exact 180p/195c/56f/~2000cal targets regardless of which
-// proteins are used — chicken, salmon, and tuna each have a different
-// protein:fat ratio, so the portions aren't interchangeable.
-const DAY_TYPES: Record<"tunaChicken" | "tunaSalmon", DayType> = {
-  tunaChicken: {
-    lunch: { protein: "tuna", item: "Tuna, canned in water (drained)", amount: 113, rice: 31 },
-    dinner: { protein: "chicken", item: "Chicken thigh, cooked", amount: 417, pasta: 158 },
-  },
-  tunaSalmon: {
-    lunch: { protein: "tuna", item: "Tuna, canned in water (drained)", amount: 339, rice: 74 },
-    dinner: { protein: "salmon", item: "Salmon, Atlantic, raw", amount: 348, pasta: 106 },
-  },
-};
+const DINNER_SALMON_WEEKEND_G = 86; // Sat
+const DINNER_SIRLOIN_WEEKEND_G = 132; // Sun
+const DINNER_PASTA_WEEKEND_G = 118;
 
+type BreakfastKind = "standard" | "eggToast";
+type LunchKind = "chickenThigh" | "groundBeef";
+type DinnerKind = "sirloin" | "salmon";
+
+// Locked day-by-day plan, straight from the user's spec.
 export const WEEKLY_MEAL_PLAN = [
-  { day: "Monday", type: "tunaChicken" },
-  { day: "Tuesday", type: "tunaSalmon" },
-  { day: "Wednesday", type: "tunaChicken" },
-  { day: "Thursday", type: "tunaSalmon" },
-  { day: "Friday", type: "tunaChicken" },
-  { day: "Saturday", type: "tunaSalmon" },
-  { day: "Sunday", type: "tunaChicken" },
-] as const satisfies { day: string; type: keyof typeof DAY_TYPES }[];
-
-function weeklySum(pick: (d: DayType) => number) {
-  return WEEKLY_MEAL_PLAN.reduce((sum, { type }) => sum + pick(DAY_TYPES[type]), 0);
-}
-
-const weeklyChickenCooked = weeklySum((d) => (d.dinner.protein === "chicken" ? d.dinner.amount : 0));
-const weeklySalmonRaw = weeklySum((d) => (d.dinner.protein === "salmon" ? d.dinner.amount : 0));
-const weeklyTuna = weeklySum((d) => d.lunch.amount);
-const weeklyRice = weeklySum((d) => d.lunch.rice);
-const weeklyPasta = weeklySum((d) => d.dinner.pasta);
-const weeklyYogurt = YOGURT_DAILY * WEEKLY_MEAL_PLAN.length;
-const weeklyGranola = GRANOLA_DAILY * WEEKLY_MEAL_PLAN.length;
-const weeklyFruit = FRUIT_DAILY * WEEKLY_MEAL_PLAN.length;
-
-// Weekly grocery list, derived from the day-by-day plan above. Chicken's
-// listed amount is raw purchase weight, but its macros are computed from the
-// cooked-equivalent total (weeklyChickenCooked) since the macro rate is a
-// cooked-basis rate.
-export const BASELINE_GROCERY = [
-  {
-    item: "Chicken thigh, boneless skinless (raw)",
-    amount: Math.round(weeklyChickenCooked / CHICKEN_COOKING_YIELD),
-    unit: "g",
-    ...macroGrams(weeklyChickenCooked, CHICKEN_PER_100G_COOKED),
-  },
-  { item: "Salmon, Atlantic, raw", amount: weeklySalmonRaw, unit: "g", ...macroGrams(weeklySalmonRaw, SALMON_PER_100G_RAW) },
-  { item: "Tuna, canned in water (drained)", amount: weeklyTuna, unit: "g", ...macroGrams(weeklyTuna, TUNA_PER_100G_DRAINED) },
-  { item: "Rice, raw (white)", amount: weeklyRice, unit: "g", ...macroGrams(weeklyRice, RICE_PER_100G_RAW) },
-  { item: "Protein pasta, dry", amount: weeklyPasta, unit: "g", ...macroGrams(weeklyPasta, PASTA_PER_100G_DRY) },
-  {
-    item: "Greek yogurt (Oikos Triple Zero Vanilla)",
-    amount: weeklyYogurt,
-    unit: "g",
-    ...macroGrams(weeklyYogurt, YOGURT_PER_100G),
-  },
-  { item: "Granola", amount: weeklyGranola, unit: "g", ...macroGrams(weeklyGranola, GRANOLA_PER_100G) },
-  { item: "Mixed fruit", amount: weeklyFruit, unit: "g", ...macroGrams(weeklyFruit, FRUIT_PER_100G) },
-] as const;
+  { day: "Monday", breakfast: "standard", lunch: "chickenThigh", dinner: "sirloin" },
+  { day: "Tuesday", breakfast: "standard", lunch: "groundBeef", dinner: "salmon" },
+  { day: "Wednesday", breakfast: "standard", lunch: "chickenThigh", dinner: "sirloin" },
+  { day: "Thursday", breakfast: "standard", lunch: "groundBeef", dinner: "salmon" },
+  { day: "Friday", breakfast: "standard", lunch: "chickenThigh", dinner: "sirloin" },
+  { day: "Saturday", breakfast: "eggToast", lunch: "groundBeef", dinner: "salmon" },
+  { day: "Sunday", breakfast: "eggToast", lunch: "groundBeef", dinner: "sirloin" },
+] as const satisfies { day: string; breakfast: BreakfastKind; lunch: LunchKind; dinner: DinnerKind }[];
 
 export type MacroTargets = {
   calories: number;
@@ -134,37 +119,147 @@ export function getFriendTargets(meTargets: MacroTargets): MacroTargets {
   };
 }
 
-export function getGroceryList(scaleFactor: number) {
-  return BASELINE_GROCERY.map((row) => ({
-    ...row,
-    amount: Math.round(row.amount * scaleFactor),
-    proteinG: Math.round(row.proteinG * scaleFactor),
-    carbG: Math.round(row.carbG * scaleFactor),
-    fatG: Math.round(row.fatG * scaleFactor),
-  }));
+type MacroItem = { item: string; groceryId: string; amount: number; unit: string; proteinG: number; carbG: number; fatG: number };
+
+function row(
+  item: string,
+  groceryId: string,
+  amount: number,
+  unit: string,
+  per100g: { protein: number; carb: number; fat: number },
+  scaleFactor: number
+): MacroItem {
+  const scaledAmount = Math.round(amount * scaleFactor);
+  return { item, groceryId, amount: scaledAmount, unit, ...macroGrams(scaledAmount, per100g) };
+}
+
+function breakfastItems(kind: BreakfastKind, scaleFactor: number): MacroItem[] {
+  if (kind === "standard") {
+    return [
+      row("Greek yogurt (Oikos Triple Zero Vanilla)", "yogurt", YOGURT_DAILY, "g", YOGURT_PER_100G, scaleFactor),
+      row("Granola", "granola", GRANOLA_DAILY, "g", GRANOLA_PER_100G, scaleFactor),
+      row("Mixed fruit", "fruit", FRUIT_DAILY, "g", FRUIT_PER_100G, scaleFactor),
+    ];
+  }
+  return [
+    row("Eggs (2)", "eggs", EGG_G, "g", EGG_PER_100G_COOKED, scaleFactor),
+    row("Toast", "toast", TOAST_G, "g", TOAST_PER_100G_BREAD, scaleFactor),
+    row("Avocado (1/2)", "avocado", AVOCADO_G, "g", AVOCADO_PER_100G, scaleFactor),
+  ];
+}
+
+function lunchItems(kind: LunchKind, scaleFactor: number): MacroItem[] {
+  const protein =
+    kind === "chickenThigh"
+      ? row("Chicken thigh, cooked", "chickenThigh", LUNCH_CHICKEN_THIGH_G, "g", CHICKEN_THIGH_PER_100G_COOKED, scaleFactor)
+      : row("Ground beef 93/7, cooked", "groundBeef", LUNCH_GROUND_BEEF_G, "g", GROUND_BEEF_93_7_PER_100G_COOKED, scaleFactor);
+  return [protein, row("Basmati rice, raw", "rice", LUNCH_RICE_G, "g", BASMATI_RICE_PER_100G_RAW, scaleFactor)];
+}
+
+function dinnerItems(kind: DinnerKind, breakfastKind: BreakfastKind, scaleFactor: number): MacroItem[] {
+  const pastaG = breakfastKind === "standard" ? DINNER_PASTA_WEEKDAY_G : DINNER_PASTA_WEEKEND_G;
+  const protein =
+    kind === "sirloin"
+      ? row(
+          "Top sirloin, cooked",
+          "sirloin",
+          breakfastKind === "standard" ? DINNER_SIRLOIN_WEEKDAY_G : DINNER_SIRLOIN_WEEKEND_G,
+          "g",
+          TOP_SIRLOIN_PER_100G_COOKED,
+          scaleFactor
+        )
+      : row(
+          "Salmon, Atlantic, raw",
+          "salmon",
+          breakfastKind === "standard" ? DINNER_SALMON_WEEKDAY_G : DINNER_SALMON_WEEKEND_G,
+          "g",
+          SALMON_PER_100G_RAW,
+          scaleFactor
+        );
+  return [
+    protein,
+    row("Protein pasta, dry", "pasta", pastaG, "g", PASTA_PER_100G_DRY, scaleFactor),
+    row("Rao's tomato sauce", "sauce", DINNER_SAUCE_G, "g", RAO_SAUCE_PER_100G, scaleFactor),
+  ];
+}
+
+function sumMacros(items: MacroItem[][]) {
+  let proteinG = 0,
+    carbG = 0,
+    fatG = 0;
+  for (const group of items) {
+    for (const it of group) {
+      proteinG += it.proteinG;
+      carbG += it.carbG;
+      fatG += it.fatG;
+    }
+  }
+  const calories = Math.round(proteinG * 4 + carbG * 4 + fatG * 9);
+  return { proteinG, carbG, fatG, calories };
 }
 
 export function getMealPlan(scaleFactor: number) {
-  const row = (item: string, amount: number, unit: string, per100g: { protein: number; carb: number; fat: number }) => {
-    const scaledAmount = Math.round(amount * scaleFactor);
-    return { item, amount: scaledAmount, unit, ...macroGrams(scaledAmount, per100g) };
-  };
-
-  return WEEKLY_MEAL_PLAN.map(({ day, type }) => {
-    const t = DAY_TYPES[type];
-    const dinnerRate = t.dinner.protein === "chicken" ? CHICKEN_PER_100G_COOKED : SALMON_PER_100G_RAW;
+  return WEEKLY_MEAL_PLAN.map(({ day, breakfast, lunch, dinner }) => {
+    const breakfastRows = breakfastItems(breakfast, scaleFactor);
+    const lunchRows = lunchItems(lunch, scaleFactor);
+    const dinnerRows = dinnerItems(dinner, breakfast, scaleFactor);
     return {
       day,
-      breakfast: [
-        row("Greek yogurt (Oikos Triple Zero Vanilla)", YOGURT_DAILY, "g", YOGURT_PER_100G),
-        row("Granola", GRANOLA_DAILY, "g", GRANOLA_PER_100G),
-        row("Mixed fruit", FRUIT_DAILY, "g", FRUIT_PER_100G),
-      ],
-      lunch: [
-        row(t.lunch.item, t.lunch.amount, "g", TUNA_PER_100G_DRAINED),
-        row("Rice, raw (white)", t.lunch.rice, "g", RICE_PER_100G_RAW),
-      ],
-      dinner: [row(t.dinner.item, t.dinner.amount, "g", dinnerRate), row("Protein pasta, dry", t.dinner.pasta, "g", PASTA_PER_100G_DRY)],
+      breakfast: breakfastRows,
+      lunch: lunchRows,
+      lunchNote: "+ assorted vegetables (not tracked)",
+      dinner: dinnerRows,
+      total: sumMacros([breakfastRows, lunchRows, dinnerRows]),
     };
   });
+}
+
+// Raw purchase weight needs cooked weight ÷ yield for these three; every
+// other grocery item is tracked at the same weight it's eaten.
+const GROCERY_DISPLAY: Record<string, { label: string; cookingYield?: number }> = {
+  chickenThigh: { label: "Chicken thigh, boneless skinless (raw)", cookingYield: CHICKEN_THIGH_COOKING_YIELD },
+  groundBeef: { label: "Ground beef, 93/7 (raw)", cookingYield: GROUND_BEEF_COOKING_YIELD },
+  sirloin: { label: "Top sirloin (raw)", cookingYield: TOP_SIRLOIN_COOKING_YIELD },
+  salmon: { label: "Salmon, Atlantic, raw" },
+  rice: { label: "Basmati rice, raw" },
+  pasta: { label: "Protein pasta, dry" },
+  sauce: { label: "Rao's tomato sauce" },
+  yogurt: { label: "Greek yogurt (Oikos Triple Zero Vanilla)" },
+  granola: { label: "Granola" },
+  fruit: { label: "Mixed fruit" },
+  eggs: { label: "Eggs" },
+  toast: { label: "Bread, toast" },
+  avocado: { label: "Avocado" },
+};
+
+const GROCERY_ORDER = Object.keys(GROCERY_DISPLAY);
+
+/** Weekly grocery list — summed straight from the locked meal plan, so it can never drift out of sync with it. */
+export function getGroceryList(scaleFactor: number) {
+  const totals = new Map<string, { amount: number; proteinG: number; carbG: number; fatG: number }>();
+  for (const day of getMealPlan(1)) {
+    for (const it of [...day.breakfast, ...day.lunch, ...day.dinner]) {
+      const existing = totals.get(it.groceryId) ?? { amount: 0, proteinG: 0, carbG: 0, fatG: 0 };
+      existing.amount += it.amount;
+      existing.proteinG += it.proteinG;
+      existing.carbG += it.carbG;
+      existing.fatG += it.fatG;
+      totals.set(it.groceryId, existing);
+    }
+  }
+
+  return GROCERY_ORDER.map((groceryId) => {
+    const t = totals.get(groceryId);
+    if (!t) return null;
+    const display = GROCERY_DISPLAY[groceryId];
+    const rawAmount = display.cookingYield ? t.amount / display.cookingYield : t.amount;
+    return {
+      item: display.label,
+      amount: Math.round(rawAmount * scaleFactor),
+      unit: "g",
+      proteinG: Math.round(t.proteinG * scaleFactor),
+      carbG: Math.round(t.carbG * scaleFactor),
+      fatG: Math.round(t.fatG * scaleFactor),
+    };
+  }).filter((row): row is NonNullable<typeof row> => row != null);
 }

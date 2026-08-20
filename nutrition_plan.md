@@ -1,88 +1,82 @@
-# Weekly Nutrition Plan
+# Weekly Nutrition Plan (locked, 2026-08 revision)
 
-## Daily Targets
-- Protein: 180g
-- Carbs: 195g
-- Fat: 56g
-- Calories: 2000 (±50 tolerance)
-- 3 meals/day: breakfast (fixed) + lunch + dinner
-- Beverage: water only, occasional milk
-- These targets are fixed — the app no longer scales them by BMR check-in data.
-- Every day hits the targets **exactly**, solved independently per day — chicken, salmon, and tuna each have a different protein:fat ratio, so portions aren't just copy-pasted across days.
+## Philosophy shift
+The plan is no longer solved to hit a fixed daily target. Every amount below
+is either a food the user specified directly (rice, pasta, sauce) or sized to
+match the protein of a "known-manageable" reference portion — whatever
+calories/fat fall out of that is the real number. The old `180p/195c/56f/2000cal`
+target (`BASELINE_TARGETS` in `lib/nutrition.ts`) is kept only as a legacy
+reference point; this plan runs well above it most days, mainly on fat and
+calories, because both lunch and dinner now carry a fat-bearing protein (no
+more zero-fat tuna at lunch balancing things out).
+
+## The two anchors
+- **Lunch protein anchor:** the protein in 400g of cooked chicken breast
+  (≈124g protein). Whichever lunch protein is used (chicken thigh or ground
+  beef) is dosed to match that same protein amount — not the breast itself,
+  which never appears in the actual plan.
+- **Dinner protein anchor:** the protein in 400g of cooked chicken thigh
+  (≈100g protein). Applied to both dinner proteins (top sirloin and salmon)
+  for the same reason — one fixed reference instead of guessing per protein.
+
+## Fixed amounts (same every day)
+- Lunch: 70g raw basmati rice + assorted vegetables (not tracked)
+- Dinner: 100g dry protein pasta + 125g Rao's tomato sauce (~1/2 cup)
+- Breakfast (Mon–Fri): 200g Greek yogurt, 40g granola, 200g mixed fruit
+- Breakfast (Sat–Sun): 2 eggs, 1 slice toast, 1/2 avocado
+
+## Ground beef: 93/7 over 90/10
+The user left this as an open choice ("93/7 if that makes proportions
+better"). At the lunch protein anchor (124g protein), 93/7 needs ~440g cooked
+beef for ~35g fat, vs. 90/10 needing ~464g cooked beef for ~52g fat — 93/7
+gets the same protein for meaningfully less fat, so it's the one used.
 
 ## Macro Data Used
 
-| Food | Protein (g) | Carbs (g) | Fat (g) | Calories | Basis |
-|---|---|---|---|---|---|
-| Chicken thigh, boneless skinless | 25 | 0 | 11 | ~199 | per 100g **cooked** |
-| Salmon, Atlantic, farm raised | 20.3 | 0 | 13.1 | 197 | per 100g **raw** (USDA FDC) |
-| Tuna, canned in water (StarKist Chunk Light) | 20 | 0 | 0.5 | 90 | per 113g can, drained |
-| Rice, white | ~6.67 | 80 | 0.67 | 353 | per 100g raw |
-| Protein pasta | ~17.64 | ~67.02 | ~1.76 | ~354.5 | per 100g dry (10p/38c/1f per 2oz/56.7g serving, as given) |
+| Food | Protein (g) | Carbs (g) | Fat (g) | Basis |
+|---|---|---|---|---|
+| Chicken breast, cooked | 31 | 0 | 3.6 | per 100g cooked — reference only, sizes the lunch anchor |
+| Chicken thigh, boneless skinless, cooked | 25 | 0 | 11 | per 100g cooked |
+| Ground beef, 93/7, cooked | 28.2 | 0 | 8.1 | per 100g cooked |
+| Top sirloin, cooked | 29 | 0 | 8.5 | per 100g cooked |
+| Salmon, Atlantic, raw | 20.3 | 0 | 13.1 | per 100g raw |
+| Basmati rice, raw | 7.13 | 78.13 | 0.44 | per 100g raw |
+| Protein pasta, dry | 17.637 | 67.022 | 1.7637 | per 100g dry |
+| Rao's tomato sauce | 1.6 | 6.5 | 4.8 | per 100g (~90cal/2p/8c/6f per 1/2 cup label serving) |
+| Greek yogurt (Oikos Triple Zero Vanilla) | 10 | 4.12 | 0 | per 100g |
+| Granola | 10 | 64 | 15 | per 100g |
+| Mixed fruit (avg) | 0.9 | 15.5 | 0.3 | per 100g |
+| Egg, cooked | 12.6 | 1.2 | 9.6 | per 100g cooked (~2 large eggs) |
+| Toast (sandwich bread) | 12 | 50 | 4 | per 100g (~25g/slice) |
+| Avocado, raw | 2 | 8.5 | 14.7 | per 100g |
 
-**Greek yogurt:** Oikos Triple Zero Vanilla High Protein Nonfat — 170g serving = 100 cal, 0g fat, 7g carb, 17g protein → per 100g: 10g protein, 4.12g carb, 0g fat, 58.8 cal.
+**Chicken thigh / ground beef / top sirloin cooking yield:** raw purchase
+weight ≈ cooked weight ÷ 0.75, used only to size the weekly grocery list.
+Salmon needs no such conversion — tracked at raw weight, same as it's eaten.
 
-**Granola:** ~10g protein, 64g carb, 15g fat, 471 cal per 100g.
+## Locked Daily Plan
 
-**Fruit (mixed avg):** ~0.9g protein, 15.5g carb, 0.3g fat, 60.5 cal per 100g.
+| Day | Breakfast | Lunch | Dinner |
+|---|---|---|---|
+| Monday | Yogurt (standard) | Chicken thigh (~496g cooked) + rice + veggies | Top sirloin (~345g cooked) + pasta + Rao's |
+| Tuesday | Yogurt (standard) | Ground beef 93/7 (~440g cooked) + rice + veggies | Salmon (~493g raw) + pasta + Rao's |
+| Wednesday | Yogurt (standard) | Chicken thigh (~496g cooked) + rice + veggies | Top sirloin (~345g cooked) + pasta + Rao's |
+| Thursday | Yogurt (standard) | Ground beef 93/7 (~440g cooked) + rice + veggies | Salmon (~493g raw) + pasta + Rao's |
+| Friday | Yogurt (standard) | Chicken thigh (~496g cooked) + rice + veggies | Top sirloin (~345g cooked) + pasta + Rao's |
+| Saturday | Egg + toast + avocado | Ground beef 93/7 (~440g cooked) + rice + veggies | Salmon (~493g raw) + pasta + Rao's |
+| Sunday | Egg + toast + avocado | Ground beef 93/7 (~440g cooked) + rice + veggies | Top sirloin (~345g cooked) + pasta + Rao's |
 
-**Chicken thigh cooking yield:** raw weight ≈ cooked weight ÷ 0.75 (~25% weight loss from cooking), used only to convert the weekly grocery total to a raw purchase weight. Salmon and tuna need no such conversion — they're tracked at the weight actually eaten (raw fillet / drained can).
+Exact per-item and per-day totals (protein/carb/fat/calories) are computed in
+`lib/nutrition.ts` (`getMealPlan`) and shown on the Grocery page — they scale
+with `FRIEND_FACTOR` the same way the grocery list does.
 
-## Meal Structure
-- **Breakfast is standardized: 200g Greek yogurt, 40g granola, 200g mixed fruit, every single day.** No variation by day type.
-- **Lunch is always tuna + rice.** Tuna never goes with the pasta dinner (bad combo).
-- **Dinner alternates chicken and salmon**, both with protein pasta, for variety.
-- With breakfast now fixed the same every day, the rice/pasta/protein amounts are what absorb the difference between a chicken day and a salmon day to keep hitting the exact macro targets — see Design Notes below.
-
-### Type A — tuna & chicken (Mon/Wed/Fri/Sun)
-| Meal | Item | Amount |
-|---|---|---|
-| Breakfast | Greek yogurt | 200g |
-| Breakfast | Granola | 40g |
-| Breakfast | Mixed fruit | 200g |
-| Lunch | Tuna, canned in water (drained) | 113g (1 can) |
-| Lunch | Rice, raw | 31g |
-| Dinner | Chicken thigh, cooked | 417g |
-| Dinner | Protein pasta, dry | 158g |
-
-Lunch: 144g of food. Dinner: 575g of food.
-
-### Type B — tuna & salmon (Tue/Thu/Sat)
-| Meal | Item | Amount |
-|---|---|---|
-| Breakfast | Greek yogurt | 200g |
-| Breakfast | Granola | 40g |
-| Breakfast | Mixed fruit | 200g |
-| Lunch | Tuna, canned in water (drained) | 339g (3 cans) |
-| Lunch | Rice, raw | 74g |
-| Dinner | Salmon, Atlantic, raw | 348g |
-| Dinner | Protein pasta, dry | 106g |
-
-Lunch: 413g of food. Dinner: 454g of food.
-
-Both types land on ~180g protein / ~195g carb / ~56g fat / ~2016-2020 cal.
-
-## Design Notes / Constraints Applied
-- **Why rice/pasta/protein amounts differ so much between the two types now:** breakfast (yogurt/granola/fruit) used to be the flexible piece that absorbed the difference between a chicken day and a salmon day — now that it's fixed at 200/40/200g every day, that slack has to come from somewhere else. Rice and pasta (the only other carb sources) and the dinner protein amount are what flex instead: chicken days need much more pasta (158g vs 106g) and much less rice (31g vs 74g) than salmon days, because salmon's higher fat density needs less mass to hit the fat target, which frees up more of the carb budget for rice instead of pasta.
-- **Why chicken+salmon (no tuna) isn't used as a day pairing:** both chicken (25p/11f) and salmon (20.3p/13.1f) are relatively fat-heavy per gram of protein. Once rice/pasta/breakfast eat into the fat budget, the protein-to-fat ratio still needed from the day's proteins comes out *higher* than either chicken or salmon can supply alone — and mixing two foods that are both too low on that ratio can never average to something higher than the higher of the two. The math only works out with tuna (nearly pure protein, ~40:1 protein:fat ratio) in the mix, pulling the average up to where it needs to be. Tuna is locked to lunch anyway (not paired with pasta), so it ended up as the fixed lunch anchor with chicken/salmon rotating at dinner.
-- **Why the tuna amount jumps between 1 can (Type A) and 3 cans (Type B):** salmon's higher fat density means less of it is needed to hit the fat target than chicken, but that also means less protein comes along with it — tuna has to make up the difference.
-- Chicken breast, ground beef, and mixing proteins within a single meal are still out of rotation — one protein per meal, as before.
-
-## Weekly Grocery List
-
-| Item | Amount | Notes |
-|---|---|---|
-| Chicken thigh, boneless skinless (raw) | 2224g (4.90 lb) | 417g cooked × 4 days ÷ 0.75 cooking yield |
-| Salmon, Atlantic, raw | 1044g (2.30 lb) | 348g × 3 days |
-| Tuna, canned in water (drained) | 1469g | ~13 cans total (1×4 + 3×3) |
-| Rice, raw (white) | 346g (0.76 lb) | 31g × 4 (Type A) + 74g × 3 (Type B) |
-| Protein pasta, dry | 950g | 158g × 4 (Type A) + 106g × 3 (Type B) |
-| Greek yogurt (Oikos Triple Zero Vanilla) | 1400g | 200g × 7 days — standardized |
-| Granola | 280g | |
-| Mixed fruit (apple, orange, blueberries, banana, strawberry) | 1400g | ~2 apples, 2 oranges, 1 cup blueberries, 2 bananas, 1 lb strawberries |
-
-## Weekly Totals
-- Protein: ~1260g
-- Carbs: ~1366g
-- Fat: ~392g
-- Calories: ~14,120
+## Weekly Grocery List (see `lib/nutrition.ts` for exact numbers)
+- Chicken thigh, boneless skinless (raw) — 3 lunches
+- Ground beef, 93/7 (raw) — 4 lunches
+- Top sirloin (raw) — 4 dinners
+- Salmon, Atlantic, raw — 3 dinners
+- Basmati rice, raw — every day
+- Protein pasta, dry — every dinner
+- Rao's tomato sauce — every dinner
+- Greek yogurt, granola, mixed fruit — 5 breakfasts (Mon–Fri)
+- Eggs, toast, avocado — 2 breakfasts (Sat–Sun)

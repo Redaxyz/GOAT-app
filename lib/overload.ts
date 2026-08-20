@@ -1,10 +1,12 @@
-// Progressive overload suggestions per Fitness.md rules:
+// Progressive overload suggestions:
 // - Lifts: increase reps 8->12 at a fixed weight, then bump weight and reset
 //   to 8 reps (double progression). Weight bump defaults to 5lb (smallest
 //   dumbbell increment at a typical gym) but is overridden per-exercise
 //   whenever the user actually logs a different jump (see lib/actions.ts).
-// - Running: +0.5km each session (Tue + Fri).
-// - Biking: +3.5km week to week, but only once per week (Sat).
+// - Running: +0.5km each session.
+// - Biking: +3.5km week to week, but only once per calendar week — the
+//   two-week schedule's bonus bike day can land in the same week as another
+//   ride (see lib/schedule.ts), so this cap can hold distance steady twice.
 
 const REP_FLOOR = 8;
 const REP_CEILING = 12;

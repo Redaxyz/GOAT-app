@@ -14,6 +14,7 @@ export default async function GroceryPage() {
       <section>
         <h1 className="text-2xl font-extrabold mb-5">Grocery list</h1>
 
+        <p className="text-xs font-semibold opacity-50 mb-2">Daily ceiling the locked plan solves against — weekdays land right on it, see each day&apos;s real total below.</p>
         <div className="grid grid-cols-2 gap-y-4 mb-8">
           <Stat label="Calories" value={`${targets.calories}`} />
           <Stat label="Protein" value={`${targets.proteinG}g`} />
@@ -32,16 +33,24 @@ export default async function GroceryPage() {
       <section>
         <h2 className="text-lg font-extrabold mb-1">Daily meal plan</h2>
         <p className="text-sm font-semibold opacity-70 mb-4">
-          Lunch is always tuna &amp; rice, dinner alternates chicken and salmon with protein pasta. Dinner is always the
-          bigger meal — every day hits the same 180p/195c/56f target exactly.
+          Locked plan — same meals every week. Lunch is a fixed, real portion (350g chicken thigh, or ground beef at the
+          same protein) with basmati rice; dinner (top sirloin or salmon, with protein pasta and Rao&apos;s tomato sauce) is
+          solved per day to use up what&apos;s left of the day&apos;s protein/fat budget without exceeding it. Each day&apos;s
+          real total is shown below it.
         </p>
         <div className="space-y-8">
           {mealPlan.map((day) => (
             <div key={day.day}>
               <div className="text-base font-extrabold mb-2">{day.day}</div>
               <MealBlock label="Breakfast" items={day.breakfast} />
-              <MealBlock label="Lunch" items={day.lunch} />
+              <MealBlock label="Lunch" items={day.lunch} note={day.lunchNote} />
               <MealBlock label="Dinner" items={day.dinner} />
+              <div className="flex items-center justify-between text-sm font-extrabold pt-1">
+                <span className="opacity-60">Day total</span>
+                <span>
+                  {day.total.calories} cal — {day.total.proteinG}P {day.total.carbG}C {day.total.fatG}F
+                </span>
+              </div>
             </div>
           ))}
         </div>
@@ -52,7 +61,7 @@ export default async function GroceryPage() {
 
 type MacroItem = { item: string; amount: number; unit: string; proteinG: number; carbG: number; fatG: number };
 
-function MealBlock({ label, items }: { label: string; items: MacroItem[] }) {
+function MealBlock({ label, items, note }: { label: string; items: MacroItem[]; note?: string }) {
   return (
     <div className="mb-3">
       <div className="text-sm font-bold opacity-60 mb-1">{label}</div>
@@ -69,6 +78,7 @@ function MealBlock({ label, items }: { label: string; items: MacroItem[] }) {
           small
         />
       ))}
+      {note && <div className="text-xs font-semibold opacity-50 pt-1">{note}</div>}
     </div>
   );
 }
