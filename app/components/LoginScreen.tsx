@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { selectProfile } from "@/app/actions";
-import { JACK_BLUE, REDA_PURPLE } from "@/lib/theme";
+import { JACK_BLUE, REDA_GOLD } from "@/lib/theme";
 
 const TEETH = 18;
 const DEPTH = 1.6;
@@ -14,8 +14,8 @@ type Side = "left" | "right";
 type Phase = "idle" | "grow" | "reveal";
 
 const PANEL: Record<Side, { bg: string; text: string; name: string }> = {
-  left: { bg: JACK_BLUE, text: REDA_PURPLE, name: "Jack" },
-  right: { bg: REDA_PURPLE, text: JACK_BLUE, name: "Reda" },
+  left: { bg: JACK_BLUE, text: REDA_GOLD, name: "Jack" },
+  right: { bg: REDA_GOLD, text: JACK_BLUE, name: "Reda" },
 };
 
 /** Maps a local coordinate (0 = this side's screen edge, 100 = the far screen edge) to a real x%. */
