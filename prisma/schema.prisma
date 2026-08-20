@@ -7,8 +7,13 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // DATABASE_URL is Neon's pooled (PgBouncer) endpoint — good for the app's
+  // runtime queries in a serverless environment. Prisma Migrate needs a
+  // direct, non-pooled connection for its advisory locks; running migrations
+  // over the pooled endpoint on Vercel is what caused the P1002 timeout.
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ---- People -----------------------------------------------------------
