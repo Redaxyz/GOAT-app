@@ -3,7 +3,7 @@
 // added (see WorkoutDayPlan). DEFAULT_LIFT_DAYS is just the starting point
 // for a brand new profile that hasn't saved anything yet.
 
-import { daysBetween } from "@/lib/date";
+import { daysBetween, addDays, dateOnly } from "@/lib/date";
 
 export type DayKey = string;
 
@@ -48,34 +48,42 @@ export type ScheduleDayType = "GYM" | "RUN" | "BIKE" | "REST";
 
 export type ScheduleEntry = { type: ScheduleDayType; dayKey: DayKey | null };
 
-// Only the *type* per slot is fixed; which specific gym-day variant lands on
-// a given GYM slot is a round-robin over however many days the profile
-// currently has (see gymDayKeyForCycleIndex) — so adding a 5th day just
-// spreads the rotation across five variants instead of four, no schedule
-// redesign needed.
-const CYCLE_TYPE_TEMPLATE: ScheduleDayType[] = [
-  "GYM", // Week A Mon
-  "RUN", // Week A Tue
-  "GYM", // Week A Wed
-  "RUN", // Week A Thu
-  "GYM", // Week A Fri
-  "BIKE", // Week A Sat
-  "GYM", // Week A Sun
-  "GYM", // Week B Mon
-  "RUN", // Week B Tue
-  "GYM", // Week B Wed
-  "RUN", // Week B Thu
-  "GYM", // Week B Fri
-  "BIKE", // Week B Sat
-  "BIKE", // Week B Sun — bonus bike
+// Only the *type* per slot is a built-in default; a profile can rearrange it
+// slot by slot through the edit view (see ScheduleTemplate / resolveCycleTemplate).
+// Which specific gym-day variant lands on a given GYM slot is always a
+// round-robin over however many days the profile currently has — so adding a
+// 5th day just spreads the rotation across five variants instead of four,
+// and rearranging GYM slots just changes how many round-robin turns happen,
+// no separate redesign needed either way.
+export const DEFAULT_CYCLE_TYPE_TEMPLATE: ScheduleDayType[] = [
+  "GYM", // Week 1 Mon
+  "RUN", // Week 1 Tue
+  "GYM", // Week 1 Wed
+  "RUN", // Week 1 Thu
+  "GYM", // Week 1 Fri
+  "BIKE", // Week 1 Sat
+  "GYM", // Week 1 Sun
+  "GYM", // Week 2 Mon
+  "RUN", // Week 2 Tue
+  "GYM", // Week 2 Wed
+  "RUN", // Week 2 Thu
+  "GYM", // Week 2 Fri
+  "BIKE", // Week 2 Sat
+  "BIKE", // Week 2 Sun — bonus bike
 ];
 
-// Rank (0-based) of each GYM slot among all GYM slots in the cycle, in
-// chronological order; -1 for non-GYM slots. Computed once at module load.
-const GYM_SLOT_RANKS: number[] = (() => {
-  let rank = 0;
-  return CYCLE_TYPE_TEMPLATE.map((t) => (t === "GYM" ? rank++ : -1));
-})();
+/** A profile's own saved two-week template, slot by slot — falling back to the built-in default for any slot they haven't customized. */
+export function resolveCycleTemplate(rows: { slotIndex: number; dayType: string }[]): ScheduleDayType[] {
+  const bySlot = new Map(rows.map((r) => [r.slotIndex, r.dayType as ScheduleDayType]));
+  return DEFAULT_CYCLE_TYPE_TEMPLATE.map((defaultType, i) => bySlot.get(i) ?? defaultType);
+}
+
+/** Human label for a cycle slot, e.g. "Week 1 — Monday", for the edit view. */
+export function cycleSlotLabel(slotIndex: number): string {
+  const week = slotIndex < 7 ? "Week 1" : "Week 2";
+  const weekday = dateOnly(addDays(CYCLE_ANCHOR, slotIndex)).toLocaleDateString(undefined, { weekday: "long", timeZone: "UTC" });
+  return `${week} — ${weekday}`;
+}
 
 /** Index (0-13) of `isoDate` within the repeating 14-day cycle. */
 export function cycleIndexForDate(isoDate: string): number {
@@ -83,12 +91,18 @@ export function cycleIndexForDate(isoDate: string): number {
   return ((diff % 14) + 14) % 14;
 }
 
+/** Rank (0-based) of each GYM slot among all GYM slots in `cycleTemplate`, in chronological order; -1 for non-GYM slots. */
+function gymSlotRanks(cycleTemplate: ScheduleDayType[]): number[] {
+  let rank = 0;
+  return cycleTemplate.map((t) => (t === "GYM" ? rank++ : -1));
+}
+
 /** The template's default schedule entry for a date, before any user swap. */
-export function templateEntryForDate(isoDate: string, liftDays: LiftDayDef[]): ScheduleEntry {
+export function templateEntryForDate(isoDate: string, liftDays: LiftDayDef[], cycleTemplate: ScheduleDayType[]): ScheduleEntry {
   const cycleIndex = cycleIndexForDate(isoDate);
-  const type = CYCLE_TYPE_TEMPLATE[cycleIndex];
+  const type = cycleTemplate[cycleIndex];
   if (type !== "GYM" || liftDays.length === 0) return { type, dayKey: null };
-  const rank = GYM_SLOT_RANKS[cycleIndex];
+  const rank = gymSlotRanks(cycleTemplate)[cycleIndex];
   return { type: "GYM", dayKey: liftDays[rank % liftDays.length].dayKey };
 }
 
@@ -99,8 +113,13 @@ export function templateEntryForDate(isoDate: string, liftDays: LiftDayDef[]): S
  * "gym day" with no preset exercise list, and the user picks from every
  * exercise in the full "Log a lift" list instead.
  */
-export function effectiveEntryForDate(isoDate: string, override: ScheduleDayType | null, liftDays: LiftDayDef[]): ScheduleEntry {
-  const template = templateEntryForDate(isoDate, liftDays);
+export function effectiveEntryForDate(
+  isoDate: string,
+  override: ScheduleDayType | null,
+  liftDays: LiftDayDef[],
+  cycleTemplate: ScheduleDayType[]
+): ScheduleEntry {
+  const template = templateEntryForDate(isoDate, liftDays, cycleTemplate);
   if (override == null || override === template.type) return template;
   if (override === "GYM") return { type: "GYM", dayKey: template.type === "GYM" ? template.dayKey : null };
   return { type: override, dayKey: null };

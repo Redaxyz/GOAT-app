@@ -22,8 +22,6 @@ model Profile {
   createdAt DateTime @default(now())
 
   // Inputs for BMR estimate + goal tracking.
-  // "Me" is the source of truth for nutrition targets; Friend's targets
-  // are always derived as 95% of Me's (see lib/nutrition.ts).
   birthDate      DateTime?
   heightCm       Float?
   activityFactor Float?    @default(1.4) // multiplier applied to BMR -> TDEE
@@ -31,13 +29,15 @@ model Profile {
   goalWeightKg   Float?
   goalDate       DateTime? // trip date, e.g. 2027-03-01
 
-  dailyCheckIns      DailyCheckIn[]
-  weightLogs         WeightLog[]
-  liftLogs           LiftLog[]
-  cardioLogs         CardioLog[]
-  workoutDayPlans    WorkoutDayPlan[]
-  exerciseIncrements ExerciseIncrement[]
-  scheduleOverrides  ScheduleOverride[]
+  dailyCheckIns        DailyCheckIn[]
+  weightLogs           WeightLog[]
+  liftLogs             LiftLog[]
+  cardioLogs           CardioLog[]
+  workoutDayPlans      WorkoutDayPlan[]
+  exerciseIncrements   ExerciseIncrement[]
+  scheduleOverrides    ScheduleOverride[]
+  scheduleTemplate     ScheduleTemplate[]
+  mealPlanItemOverride MealPlanItemOverride[]
 
   @@map("profiles")
 }
@@ -139,6 +139,28 @@ model WorkoutDayPlan {
   @@map("workout_day_plans")
 }
 
+// ---- Fitness: a profile's own two-week schedule template ------------------
+// The repeating 14-day gym/run/bike cycle (see lib/schedule.ts) has a
+// built-in default shape, but a profile can rearrange it slot by slot
+// (slotIndex 0-13, one row per day of the two-week cycle) through the edit
+// view — separate from ScheduleOverride below, which swaps one single date
+// on the fly rather than the recurring pattern itself. dayType is
+// "GYM" | "RUN" | "BIKE" | "REST".
+
+model ScheduleTemplate {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  slotIndex Int
+  dayType   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, slotIndex])
+  @@map("schedule_templates")
+}
+
 // ---- Fitness: per-date schedule swaps -------------------------------------
 // The two-week gym/run/bike cycle (see lib/schedule.ts) has a fixed default,
 // but a specific date's type can be swapped on the fly (e.g. gym instead of
@@ -174,4 +196,26 @@ model CardioLog {
 
   @@index([profileId, type, date])
   @@map("cardio_logs")
+}
+
+// ---- Nutrition: per-item serving size overrides ---------------------------
+// The locked meal plan (see lib/nutrition.ts) has a baseline serving size for
+// every item; any of them can be overridden per profile. day is "Monday".."Sunday",
+// meal is "breakfast" | "lunch" | "dinner", groceryId matches the item's
+// stable id there (e.g. "chickenThigh", "rice", "pasta").
+
+model MealPlanItemOverride {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  day       String
+  meal      String
+  groceryId String
+  amountG   Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, day, meal, groceryId])
+  @@map("meal_plan_item_overrides")
 }

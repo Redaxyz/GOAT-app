@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getActiveProfile, setActiveProfileCookie, clearActiveProfileCookie, ensureProfilesSeeded } from "@/lib/session";
 import { feetInchesToCm, lbToKg, kgToLb } from "@/lib/units";
-import { DEFAULT_LIFT_DAYS, parseExercisesText, type ScheduleDayType } from "@/lib/schedule";
+import { DEFAULT_LIFT_DAYS, DEFAULT_CYCLE_TYPE_TEMPLATE, parseExercisesText, type ScheduleDayType } from "@/lib/schedule";
+import type { MealKey } from "@/lib/nutrition";
 import { dateOnly } from "@/lib/date";
 import type { ProfileSlug, CardioType } from "@/lib/types";
 
@@ -208,6 +209,44 @@ export async function clearScheduleOverride(formData: FormData) {
   await prisma.scheduleOverride.deleteMany({ where: { profileId: profile.id, date } });
 
   revalidatePath("/fitness");
+}
+
+/** Rearranges the two-week gym/run/bike cycle slot by slot. */
+export async function updateScheduleTemplate(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  await Promise.all(
+    DEFAULT_CYCLE_TYPE_TEMPLATE.map((_, slotIndex) => {
+      const dayType = requireString(formData, `slot__${slotIndex}`) as ScheduleDayType;
+      return prisma.scheduleTemplate.upsert({
+        where: { profileId_slotIndex: { profileId: profile.id, slotIndex } },
+        update: { dayType },
+        create: { profileId: profile.id, slotIndex, dayType },
+      });
+    })
+  );
+
+  revalidatePath("/fitness");
+  redirect("/fitness");
+}
+
+/** Overrides one meal-plan item's serving size — its P/C/F, the day's totals, and the grocery list all recompute from this. */
+export async function setMealPlanItemAmount(day: string, meal: MealKey, groceryId: string, amountG: number) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  if (!Number.isFinite(amountG) || amountG < 0) {
+    throw new Error("Serving size must be a non-negative number");
+  }
+
+  await prisma.mealPlanItemOverride.upsert({
+    where: { profileId_day_meal_groceryId: { profileId: profile.id, day, meal, groceryId } },
+    update: { amountG },
+    create: { profileId: profile.id, day, meal, groceryId, amountG },
+  });
+
+  revalidatePath("/grocery");
 }
 
 export async function updateProfileSettings(formData: FormData) {

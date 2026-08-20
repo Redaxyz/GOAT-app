@@ -1,9 +1,25 @@
 import Link from "next/link";
 import { requireActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { submitLift, submitCardio, updateWorkoutDayPlans, addWorkoutDay, setScheduleOverride, clearScheduleOverride } from "@/app/actions";
+import {
+  submitLift,
+  submitCardio,
+  updateWorkoutDayPlans,
+  addWorkoutDay,
+  setScheduleOverride,
+  clearScheduleOverride,
+  updateScheduleTemplate,
+} from "@/app/actions";
 import { suggestNextLift, suggestNextRun, suggestNextBike, DEFAULT_WEIGHT_INCREMENT_LB } from "@/lib/overload";
-import { resolveLiftDays, effectiveEntryForDate, SCHEDULE_TYPE_LABEL, type LiftDayDef, type ScheduleDayType } from "@/lib/schedule";
+import {
+  resolveLiftDays,
+  resolveCycleTemplate,
+  effectiveEntryForDate,
+  cycleSlotLabel,
+  SCHEDULE_TYPE_LABEL,
+  type LiftDayDef,
+  type ScheduleDayType,
+} from "@/lib/schedule";
 import { today, formatDateLabel, toDateInputValue, dateOnly, addDays } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
 import { PencilIcon } from "@/app/components/icons";
@@ -15,20 +31,22 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   const profile = await requireActiveProfile();
   const { edit } = await searchParams;
 
-  const [lifts, cardio, dayPlanRows, incrementRows, scheduleOverrideRows] = await Promise.all([
+  const [lifts, cardio, dayPlanRows, incrementRows, scheduleOverrideRows, scheduleTemplateRows] = await Promise.all([
     prisma.liftLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
     prisma.cardioLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
     prisma.workoutDayPlan.findMany({ where: { profileId: profile.id } }),
     prisma.exerciseIncrement.findMany({ where: { profileId: profile.id } }),
     prisma.scheduleOverride.findMany({ where: { profileId: profile.id } }),
+    prisma.scheduleTemplate.findMany({ where: { profileId: profile.id } }),
   ]);
 
   const incrementByExercise = new Map(incrementRows.map((row) => [row.exerciseName, row.incrementLb]));
 
   const liftDays = resolveLiftDays(dayPlanRows);
+  const cycleTemplate = resolveCycleTemplate(scheduleTemplateRows);
 
   if (edit === "1") {
-    return <EditView liftDays={liftDays} />;
+    return <EditView liftDays={liftDays} cycleTemplate={cycleTemplate} />;
   }
 
   const scheduleOverrideByDate = new Map<string, ScheduleDayType>();
@@ -61,7 +79,7 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   };
 
   const todayOverride = scheduleOverrideByDate.get(todayStr) ?? null;
-  const todayEntry = effectiveEntryForDate(todayStr, todayOverride, liftDays);
+  const todayEntry = effectiveEntryForDate(todayStr, todayOverride, liftDays, cycleTemplate);
   const todayLiftDay = todayEntry.dayKey ? liftDays.find((d) => d.dayKey === todayEntry.dayKey) ?? null : null;
   const isRunDay = todayEntry.type === "RUN";
   const isBikeDay = todayEntry.type === "BIKE";
@@ -77,7 +95,7 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   const calendarCells: CalendarCell[] = Array.from({ length: daysInMonth }, (_, i) => {
     const date = addDays(firstOfMonthStr, i);
     const override = scheduleOverrideByDate.get(date) ?? null;
-    const entry = effectiveEntryForDate(date, override, liftDays);
+    const entry = effectiveEntryForDate(date, override, liftDays, cycleTemplate);
     return { date, day: i + 1, type: entry.type, isToday: date === todayStr, isOverridden: override != null };
   });
   const monthLabel = calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
@@ -361,48 +379,84 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   );
 }
 
-function EditView({ liftDays }: { liftDays: LiftDayDef[] }) {
+function EditView({ liftDays, cycleTemplate }: { liftDays: LiftDayDef[]; cycleTemplate: ScheduleDayType[] }) {
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl font-extrabold">Edit workout days</h1>
+        <h1 className="text-2xl font-extrabold">Edit fitness</h1>
         <Link href="/fitness" className="text-sm font-bold underline underline-offset-4">
           Cancel
         </Link>
       </div>
-      <form action={updateWorkoutDayPlans} className="space-y-6">
-        <input type="hidden" name="dayKeys" value={liftDays.map((d) => d.dayKey).join(",")} />
-        {liftDays.map((day) => (
-          <div key={day.dayKey}>
-            <label htmlFor={`label__${day.dayKey}`} className="block text-xs font-bold uppercase tracking-wide opacity-50 mb-1">
-              Day name
-            </label>
-            <input
-              id={`label__${day.dayKey}`}
-              name={`label__${day.dayKey}`}
-              type="text"
-              defaultValue={day.label}
-              className="w-full text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1 mb-2"
-            />
-            <p className="text-xs font-semibold opacity-60 mb-2">One exercise per line.</p>
-            <textarea
-              id={`exercises__${day.dayKey}`}
-              name={`exercises__${day.dayKey}`}
-              rows={6}
-              defaultValue={day.exercises.join("\n")}
-              className="w-full text-base font-semibold bg-transparent border-2 border-theme-accent/20 rounded-2xl px-3 py-2 focus:border-theme-accent outline-none"
-            />
-          </div>
-        ))}
-        <SubmitButton className="w-full px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
-          Save workout days
-        </SubmitButton>
-      </form>
-      <form action={addWorkoutDay}>
-        <SubmitButton className="w-full px-6 py-3.5 rounded-full border-2 border-theme-accent/30 text-theme-accent text-base font-extrabold hover:bg-theme-accent/10 active:scale-95 transition">
-          + Add a workout day
-        </SubmitButton>
-      </form>
+
+      <div>
+        <h2 className="text-lg font-extrabold mb-1">Two-week calendar</h2>
+        <p className="text-xs font-semibold opacity-60 mb-4">
+          Rearrange which days are gym/run/bike/rest. Which specific gym-day variant lands on a given gym slot still
+          rotates automatically through your workout days below.
+        </p>
+        <form action={updateScheduleTemplate} className="space-y-2">
+          {cycleTemplate.map((type, slotIndex) => (
+            <Row key={slotIndex}>
+              <label htmlFor={`slot__${slotIndex}`} className="text-base font-bold opacity-70">
+                {cycleSlotLabel(slotIndex)}
+              </label>
+              <select
+                id={`slot__${slotIndex}`}
+                name={`slot__${slotIndex}`}
+                defaultValue={type}
+                className="text-right text-base font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
+              >
+                {(Object.keys(SCHEDULE_TYPE_LABEL) as ScheduleDayType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {SCHEDULE_TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+            </Row>
+          ))}
+          <SubmitButton className="w-full mt-4 px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
+            Save calendar
+          </SubmitButton>
+        </form>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-extrabold mb-4">Workout days</h2>
+        <form action={updateWorkoutDayPlans} className="space-y-6">
+          <input type="hidden" name="dayKeys" value={liftDays.map((d) => d.dayKey).join(",")} />
+          {liftDays.map((day) => (
+            <div key={day.dayKey}>
+              <label htmlFor={`label__${day.dayKey}`} className="block text-xs font-bold uppercase tracking-wide opacity-50 mb-1">
+                Day name
+              </label>
+              <input
+                id={`label__${day.dayKey}`}
+                name={`label__${day.dayKey}`}
+                type="text"
+                defaultValue={day.label}
+                className="w-full text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1 mb-2"
+              />
+              <p className="text-xs font-semibold opacity-60 mb-2">One exercise per line.</p>
+              <textarea
+                id={`exercises__${day.dayKey}`}
+                name={`exercises__${day.dayKey}`}
+                rows={6}
+                defaultValue={day.exercises.join("\n")}
+                className="w-full text-base font-semibold bg-transparent border-2 border-theme-accent/20 rounded-2xl px-3 py-2 focus:border-theme-accent outline-none"
+              />
+            </div>
+          ))}
+          <SubmitButton className="w-full px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
+            Save workout days
+          </SubmitButton>
+        </form>
+        <form action={addWorkoutDay} className="mt-4">
+          <SubmitButton className="w-full px-6 py-3.5 rounded-full border-2 border-theme-accent/30 text-theme-accent text-base font-extrabold hover:bg-theme-accent/10 active:scale-95 transition">
+            + Add a workout day
+          </SubmitButton>
+        </form>
+      </div>
     </div>
   );
 }
