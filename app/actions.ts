@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getActiveProfile, setActiveProfileCookie, clearActiveProfileCookie, ensureProfilesSeeded } from "@/lib/session";
 import { feetInchesToCm, lbToKg, kgToLb } from "@/lib/units";
-import { DEFAULT_LIFT_DAYS, parseExercisesText, type DayKey, type ScheduleDayType } from "@/lib/schedule";
+import { DEFAULT_LIFT_DAYS, parseExercisesText, type ScheduleDayType } from "@/lib/schedule";
 import { dateOnly } from "@/lib/date";
 import type { ProfileSlug, CardioType } from "@/lib/types";
 
@@ -241,17 +241,57 @@ export async function updateWorkoutDayPlans(formData: FormData) {
   const profile = await getActiveProfile();
   if (!profile) throw new Error("No active profile");
 
+  const dayKeys = requireString(formData, "dayKeys")
+    .split(",")
+    .filter(Boolean);
+
   await Promise.all(
-    DEFAULT_LIFT_DAYS.map((day) => {
-      const exercises = parseExercisesText((formData.get(day.dayKey) as string) || "").join("\n");
+    dayKeys.map((dayKey, index) => {
+      const label = ((formData.get(`label__${dayKey}`) as string) || "").trim() || `Day ${index + 1}`;
+      const exercises = parseExercisesText((formData.get(`exercises__${dayKey}`) as string) || "").join("\n");
       return prisma.workoutDayPlan.upsert({
-        where: { profileId_dayKey: { profileId: profile.id, dayKey: day.dayKey satisfies DayKey } },
-        update: { exercises },
-        create: { profileId: profile.id, dayKey: day.dayKey, exercises },
+        where: { profileId_dayKey: { profileId: profile.id, dayKey } },
+        update: { label, exercises, sortOrder: index },
+        create: { profileId: profile.id, dayKey, label, exercises, sortOrder: index },
       });
     })
   );
 
   revalidatePath("/fitness");
   redirect("/fitness");
+}
+
+/** Adds a new, blank gym-day variant to the end of the profile's list — seeding the built-in defaults first if this is the profile's first-ever edit. */
+export async function addWorkoutDay() {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const existing = await prisma.workoutDayPlan.findMany({ where: { profileId: profile.id } });
+
+  if (existing.length === 0) {
+    await prisma.workoutDayPlan.createMany({
+      data: DEFAULT_LIFT_DAYS.map((d, index) => ({
+        profileId: profile.id,
+        dayKey: d.dayKey,
+        label: d.label,
+        exercises: d.exercises.join("\n"),
+        sortOrder: index,
+      })),
+    });
+  }
+
+  const nextSortOrder = (existing.length === 0 ? DEFAULT_LIFT_DAYS.length - 1 : Math.max(...existing.map((r) => r.sortOrder))) + 1;
+
+  await prisma.workoutDayPlan.create({
+    data: {
+      profileId: profile.id,
+      dayKey: `day-${Date.now()}`,
+      label: `Day ${nextSortOrder + 1}`,
+      exercises: "",
+      sortOrder: nextSortOrder,
+    },
+  });
+
+  revalidatePath("/fitness");
+  redirect("/fitness?edit=1");
 }

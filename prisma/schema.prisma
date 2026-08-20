@@ -115,9 +115,12 @@ model ExerciseIncrement {
   @@map("exercise_increments")
 }
 
-// ---- Fitness: customizable per-day exercise lists ------------------------
-// dayKey is "A1" | "B1" | "A2" | "B2" (see lib/schedule.ts). Only present
-// when a profile has overridden the built-in Fitness.md default for that day.
+// ---- Fitness: a profile's own list of workout days -----------------------
+// Each profile owns a full, ordered list of gym-day variants (label +
+// exercises), not just overrides on a fixed A1/B1/A2/B2 set — dayKey is a
+// stable id (freely chosen, not a fixed enum) so profiles can rename days
+// and add more of them (see lib/schedule.ts). sortOrder controls both
+// display order and the round-robin rotation through the two-week schedule.
 // exercises is a "\n"-joined list of exercise names, one per line.
 
 model WorkoutDayPlan {
@@ -125,7 +128,9 @@ model WorkoutDayPlan {
   profileId String
   profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
   dayKey    String
+  label     String
   exercises String
+  sortOrder Int
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
