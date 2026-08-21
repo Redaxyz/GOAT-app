@@ -10,7 +10,8 @@ import {
   clearScheduleOverride,
   updateScheduleTemplate,
 } from "@/app/actions";
-import { suggestNextLift, suggestNextRun, suggestNextBike, DEFAULT_WEIGHT_INCREMENT_LB } from "@/lib/overload";
+import { suggestNextLift, suggestNextRun, suggestNextBike, summarizeLiftSession, DEFAULT_WEIGHT_INCREMENT_LB, MAX_LIFT_SETS } from "@/lib/overload";
+import type { LiftSetEntry } from "@/lib/types";
 import {
   resolveLiftDays,
   resolveCycleTemplate,
@@ -26,6 +27,14 @@ import { PencilIcon } from "@/app/components/icons";
 import Row from "@/app/components/Row";
 import SubmitButton from "@/app/components/SubmitButton";
 import MonthCalendar, { type CalendarCell } from "@/app/components/MonthCalendar";
+
+function liftSets(lift: { sets: unknown }): LiftSetEntry[] {
+  return lift.sets as LiftSetEntry[];
+}
+
+function formatSetsLb(sets: LiftSetEntry[]): string {
+  return sets.map((s) => `${kgToLb(s.weightKg)}lb×${s.reps}`).join(", ");
+}
 
 export default async function FitnessPage({ searchParams }: { searchParams: Promise<{ edit?: string }> }) {
   const profile = await requireActiveProfile();
@@ -237,43 +246,31 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
                 className="text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
               />
             </Row>
-            <Row>
-              <label htmlFor="lift-weight" className="text-lg font-bold opacity-70">
-                Weight (lb)
-              </label>
-              <input
-                id="lift-weight"
-                type="number"
-                step="0.5"
-                name="weightLb"
-                required
-                className="w-24 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              />
-            </Row>
-            <Row>
-              <label htmlFor="reps" className="text-lg font-bold opacity-70">
-                Reps
-              </label>
-              <input
-                id="reps"
-                type="number"
-                name="reps"
-                required
-                className="w-24 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              />
-            </Row>
-            <Row>
-              <label htmlFor="sets" className="text-lg font-bold opacity-70">
-                Sets
-              </label>
-              <input
-                id="sets"
-                type="number"
-                name="sets"
-                required
-                className="w-24 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              />
-            </Row>
+            <p className="text-xs font-semibold opacity-60 mt-2 mb-1">Set 1 is required — leave the rest blank to skip them.</p>
+            {Array.from({ length: MAX_LIFT_SETS }, (_, i) => i + 1).map((setNum) => (
+              <Row key={setNum}>
+                <span className="text-lg font-bold opacity-70">Set {setNum}</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    aria-label={`Set ${setNum} weight (lb)`}
+                    type="number"
+                    step="0.5"
+                    name={`setWeightLb${setNum}`}
+                    required={setNum === 1}
+                    placeholder="lb"
+                    className="w-16 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
+                  />
+                  <input
+                    aria-label={`Set ${setNum} reps`}
+                    type="number"
+                    name={`setReps${setNum}`}
+                    required={setNum === 1}
+                    placeholder="reps"
+                    className="w-16 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
+                  />
+                </div>
+              </Row>
+            ))}
             <SubmitButton className="w-full mt-6 px-6 py-3.5 rounded-full bg-theme-accent text-theme-own text-base font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
               Log lift
             </SubmitButton>
@@ -354,9 +351,7 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
                 .map((l) => (
                   <div key={l.id} className="flex items-center justify-between gap-4 text-sm font-bold opacity-70">
                     <span>{formatDateLabel(l.date)}</span>
-                    <span>
-                      {kgToLb(l.weightKg)}lb × {l.reps} × {l.sets}
-                    </span>
+                    <span>{formatSetsLb(liftSets(l))}</span>
                   </div>
                 ))}
             </div>
@@ -504,15 +499,19 @@ function LiftRow({
   todayStr,
 }: {
   name: string;
-  lastLog: { weightKg: number; reps: number; sets: number } | null;
+  lastLog: { sets: unknown } | null;
   isToday: boolean;
   doneToday: boolean;
   incrementLb: number;
   logForm?: boolean;
   todayStr?: string;
 }) {
-  const suggestion = lastLog
-    ? suggestNextLift({ weightLb: kgToLb(lastLog.weightKg), reps: lastLog.reps, sets: lastLog.sets }, incrementLb)
+  const lastSets = lastLog ? liftSets(lastLog) : null;
+  const suggestion = lastSets
+    ? suggestNextLift(
+        summarizeLiftSession(lastSets.map((s) => ({ weightLb: kgToLb(s.weightKg), reps: s.reps }))),
+        incrementLb
+      )
     : null;
   // Once today's set is already logged, the suggestion is for the *next*
   // session — showing it as "today's target" would misleadingly imply
@@ -524,10 +523,8 @@ function LiftRow({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <div className="text-xs font-bold opacity-50 uppercase tracking-wide">Last</div>
-          {lastLog ? (
-            <div className="font-bold opacity-70">
-              {kgToLb(lastLog.weightKg)}lb × {lastLog.reps} × {lastLog.sets}
-            </div>
+          {lastSets ? (
+            <div className="font-bold opacity-70">{formatSetsLb(lastSets)}</div>
           ) : (
             <div className="font-bold opacity-50">Not logged yet</div>
           )}
@@ -545,13 +542,30 @@ function LiftRow({
       </div>
 
       {logForm && todayStr && (
-        <form action={submitLift} className="flex items-end gap-2 flex-wrap mt-3">
+        <form action={submitLift} className="mt-3">
           <input type="hidden" name="date" value={todayStr} />
           <input type="hidden" name="exerciseName" value={name} />
-          <InlineNumberField label="lb" name="weightLb" step="0.5" defaultValue={suggestion?.weightLb} />
-          <InlineNumberField label="reps" name="reps" defaultValue={suggestion?.reps} />
-          <InlineNumberField label="sets" name="sets" defaultValue={suggestion?.sets} />
-          <SubmitButton className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
+          <div className="flex flex-col gap-2">
+            {Array.from({ length: MAX_LIFT_SETS }, (_, i) => i + 1).map((setNum) => (
+              <div key={setNum} className="flex items-end gap-2 flex-wrap">
+                <span className="text-[10px] font-bold opacity-40 uppercase tracking-wide w-10">Set {setNum}</span>
+                <InlineNumberField
+                  label="lb"
+                  name={`setWeightLb${setNum}`}
+                  step="0.5"
+                  required={setNum === 1}
+                  defaultValue={suggestion && setNum <= suggestion.sets ? suggestion.weightLb : undefined}
+                />
+                <InlineNumberField
+                  label="reps"
+                  name={`setReps${setNum}`}
+                  required={setNum === 1}
+                  defaultValue={suggestion && setNum <= suggestion.sets ? suggestion.reps : undefined}
+                />
+              </div>
+            ))}
+          </div>
+          <SubmitButton className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition mt-2">
             Log
           </SubmitButton>
         </form>

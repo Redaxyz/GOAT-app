@@ -6,9 +6,10 @@ import { prisma } from "@/lib/prisma";
 import { getActiveProfile, setActiveProfileCookie, clearActiveProfileCookie, ensureProfilesSeeded } from "@/lib/session";
 import { feetInchesToCm, lbToKg, kgToLb } from "@/lib/units";
 import { DEFAULT_LIFT_DAYS, DEFAULT_CYCLE_TYPE_TEMPLATE, parseExercisesText, type ScheduleDayType } from "@/lib/schedule";
+import { MAX_LIFT_SETS } from "@/lib/overload";
 import type { MealKey } from "@/lib/nutrition";
 import { dateOnly } from "@/lib/date";
-import type { ProfileSlug, CardioType } from "@/lib/types";
+import type { ProfileSlug, CardioType, LiftSetEntry } from "@/lib/types";
 
 function requireString(formData: FormData, key: string): string {
   const value = formData.get(key);
@@ -131,7 +132,15 @@ export async function submitLift(formData: FormData) {
   if (!profile) throw new Error("No active profile");
 
   const exerciseName = requireString(formData, "exerciseName");
-  const weightLb = Number(requireString(formData, "weightLb"));
+  const date = dateOnly(requireString(formData, "date"));
+
+  const sets: LiftSetEntry[] = [];
+  for (let i = 1; i <= MAX_LIFT_SETS; i++) {
+    const weightLb = optionalNumber(formData, `setWeightLb${i}`);
+    const reps = optionalNumber(formData, `setReps${i}`);
+    if (weightLb != null && reps != null) sets.push({ weightKg: lbToKg(weightLb), reps });
+  }
+  if (sets.length === 0) throw new Error("At least one set is required");
 
   const previous = await prisma.liftLog.findFirst({
     where: { profileId: profile.id, exerciseName },
@@ -139,20 +148,17 @@ export async function submitLift(formData: FormData) {
   });
 
   await prisma.liftLog.create({
-    data: {
-      profileId: profile.id,
-      date: dateOnly(requireString(formData, "date")),
-      exerciseName,
-      weightKg: lbToKg(weightLb),
-      reps: Number(requireString(formData, "reps")),
-      sets: Number(requireString(formData, "sets")),
-    },
+    data: { profileId: profile.id, date, exerciseName, sets },
   });
 
-  // A weight increase over the last logged set for this exercise defines the
-  // increment used for future suggestions, replacing the 5lb default.
+  // A weight increase over the last logged session's top set for this
+  // exercise defines the increment used for future suggestions, replacing
+  // the 5lb default.
   if (previous) {
-    const deltaLb = Math.round((weightLb - kgToLb(previous.weightKg)) * 10) / 10;
+    const prevSets = previous.sets as unknown as LiftSetEntry[];
+    const prevTopLb = Math.max(...prevSets.map((s) => kgToLb(s.weightKg)));
+    const newTopLb = Math.max(...sets.map((s) => kgToLb(s.weightKg)));
+    const deltaLb = Math.round((newTopLb - prevTopLb) * 10) / 10;
     if (deltaLb > 0) {
       await prisma.exerciseIncrement.upsert({
         where: { profileId_exerciseName: { profileId: profile.id, exerciseName } },

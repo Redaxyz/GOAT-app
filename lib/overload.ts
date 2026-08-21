@@ -11,6 +11,7 @@
 const REP_FLOOR = 8;
 const REP_CEILING = 12;
 export const DEFAULT_WEIGHT_INCREMENT_LB = 5;
+export const MAX_LIFT_SETS = 4;
 const RUN_INCREMENT_KM = 0.5;
 const RUN_BASELINE_KM = 5;
 const BIKE_INCREMENT_KM = 3.5;
@@ -22,6 +23,18 @@ export type LiftSuggestion = {
   sets: number;
   rationale: string;
 };
+
+/**
+ * Reduces a logged session's individual sets to the single point double
+ * progression judges against: the heaviest weight worked, and the lowest
+ * rep count among sets *at* that weight — a lighter back-off/drop set (e.g.
+ * a dropped third set) doesn't count against clearing the rep ceiling.
+ */
+export function summarizeLiftSession(sets: { weightLb: number; reps: number }[]): { weightLb: number; reps: number; sets: number } {
+  const weightLb = Math.max(...sets.map((s) => s.weightLb));
+  const repsAtTopWeight = sets.filter((s) => s.weightLb === weightLb).map((s) => s.reps);
+  return { weightLb, reps: Math.min(...repsAtTopWeight), sets: sets.length };
+}
 
 /**
  * Double progression: add one rep before ever adding weight, since +1 rep is

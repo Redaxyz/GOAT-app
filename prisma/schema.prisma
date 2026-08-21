@@ -91,9 +91,7 @@ model LiftLog {
   profile      Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
   date         DateTime
   exerciseName String
-  weightKg     Float
-  reps         Int
-  sets         Int
+  sets         Json     @map("setsData") // array of { weightKg, reps }, one entry per set, in order performed
 
   createdAt DateTime @default(now())
 
