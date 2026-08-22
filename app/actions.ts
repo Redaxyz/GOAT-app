@@ -2,13 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getActiveProfile, setActiveProfileCookie, clearActiveProfileCookie, ensureProfilesSeeded } from "@/lib/session";
 import { feetInchesToCm, lbToKg, kgToLb } from "@/lib/units";
 import { DEFAULT_LIFT_DAYS, DEFAULT_CYCLE_TYPE_TEMPLATE, parseExercisesText, type ScheduleDayType } from "@/lib/schedule";
 import { MAX_LIFT_SETS } from "@/lib/overload";
 import type { MealKey } from "@/lib/nutrition";
-import { dateOnly } from "@/lib/date";
+import { dateOnly, today } from "@/lib/date";
+import { syncDate, syncDateRange, deleteAllSyncedEvents } from "@/lib/calendarSync";
 import type { ProfileSlug, CardioType, LiftSetEntry } from "@/lib/types";
 
 function requireString(formData: FormData, key: string): string {
@@ -202,6 +204,7 @@ export async function setScheduleOverride(formData: FormData) {
     create: { profileId: profile.id, date, dayType },
   });
 
+  await syncDate(profile.id, requireString(formData, "date"));
   revalidatePath("/fitness");
 }
 
@@ -210,10 +213,12 @@ export async function clearScheduleOverride(formData: FormData) {
   const profile = await getActiveProfile();
   if (!profile) throw new Error("No active profile");
 
-  const date = dateOnly(requireString(formData, "date"));
+  const dateStr = requireString(formData, "date");
+  const date = dateOnly(dateStr);
 
   await prisma.scheduleOverride.deleteMany({ where: { profileId: profile.id, date } });
 
+  await syncDate(profile.id, dateStr);
   revalidatePath("/fitness");
 }
 
@@ -233,8 +238,73 @@ export async function updateScheduleTemplate(formData: FormData) {
     })
   );
 
+  // The whole template changed, so a wide window of dates needs re-pushing
+  // to Google Calendar — that's dozens of sequential API calls, too slow to
+  // await before the redirect below, so it runs after the response instead.
+  after(async () => {
+    try {
+      await syncDateRange(profile.id, today());
+    } catch (err) {
+      console.error("Calendar sync after template update failed", err);
+    }
+  });
+
   revalidatePath("/fitness");
   redirect("/fitness");
+}
+
+/** Saves the profile's athletic-schedule timing (wake times, durations, commute minutes) and pushes the change to Google Calendar. */
+export async function updateAthleticScheduleSettings(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const commuteToWorkMinByWeekday: Record<string, number> = {};
+  for (const weekday of [1, 2, 3, 4, 5]) {
+    const minutes = optionalNumber(formData, `commuteToWorkMin__${weekday}`);
+    if (minutes != null) commuteToWorkMinByWeekday[String(weekday)] = minutes;
+  }
+
+  const data = {
+    weekdayWakeTime: requireString(formData, "weekdayWakeTime"),
+    weekendWakeTime: requireString(formData, "weekendWakeTime"),
+    getReadyMin: Number(requireString(formData, "getReadyMin")),
+    commuteToGymMin: Number(requireString(formData, "commuteToGymMin")),
+    gymDurationMin: Number(requireString(formData, "gymDurationMin")),
+    runDurationMin: Number(requireString(formData, "runDurationMin")),
+    showerMin: Number(requireString(formData, "showerMin")),
+    commuteToWorkMinByWeekday,
+  };
+
+  await prisma.athleticScheduleSettings.upsert({
+    where: { profileId: profile.id },
+    update: data,
+    create: { profileId: profile.id, ...data },
+  });
+
+  // Timing changed for every day, not just one date — same rationale as
+  // updateScheduleTemplate for deferring the resync past the redirect.
+  after(async () => {
+    try {
+      await syncDateRange(profile.id, today());
+    } catch (err) {
+      console.error("Calendar sync after settings update failed", err);
+    }
+  });
+
+  revalidatePath("/fitness");
+  redirect("/fitness");
+}
+
+/** Disconnects Google Calendar — removes every event this app created, then deletes the stored tokens. */
+export async function disconnectGoogleCalendar() {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  await deleteAllSyncedEvents(profile.id);
+  await prisma.googleCalendarConnection.deleteMany({ where: { profileId: profile.id } });
+
+  revalidatePath("/fitness");
+  redirect("/fitness?edit=1");
 }
 
 /** Overrides one meal-plan item's serving size — its P/C/F, the day's totals, and the grocery list all recompute from this. */

@@ -34,15 +34,18 @@ model Profile {
   goalWeightKg   Float?
   goalDate       DateTime? // trip date, e.g. 2027-03-01
 
-  dailyCheckIns        DailyCheckIn[]
-  weightLogs           WeightLog[]
-  liftLogs             LiftLog[]
-  cardioLogs           CardioLog[]
-  workoutDayPlans      WorkoutDayPlan[]
-  exerciseIncrements   ExerciseIncrement[]
-  scheduleOverrides    ScheduleOverride[]
-  scheduleTemplate     ScheduleTemplate[]
-  mealPlanItemOverride MealPlanItemOverride[]
+  dailyCheckIns            DailyCheckIn[]
+  weightLogs               WeightLog[]
+  liftLogs                 LiftLog[]
+  cardioLogs               CardioLog[]
+  workoutDayPlans          WorkoutDayPlan[]
+  exerciseIncrements       ExerciseIncrement[]
+  scheduleOverrides        ScheduleOverride[]
+  scheduleTemplate         ScheduleTemplate[]
+  mealPlanItemOverride     MealPlanItemOverride[]
+  athleticScheduleSettings AthleticScheduleSettings?
+  googleCalendarConnection GoogleCalendarConnection?
+  athleticCalendarEvents   AthleticCalendarEvent[]
 
   @@map("profiles")
 }
@@ -206,6 +209,73 @@ model CardioLog {
 // every item; any of them can be overridden per profile. day is "Monday".."Sunday",
 // meal is "breakfast" | "lunch" | "dinner", groceryId matches the item's
 // stable id there (e.g. "chickenThigh", "rice", "pasta").
+
+// ---- Athletic schedule -> Google Calendar sync ----------------------------
+// The two-week gym/run/bike cycle above (ScheduleTemplate/ScheduleOverride)
+// says WHAT type of day it is; these three models say WHEN things happen
+// and where they land on Google Calendar. AthleticScheduleSettings holds the
+// timing knobs (one row per profile). GoogleCalendarConnection holds the
+// OAuth tokens for whichever Google account a profile has connected.
+// AthleticCalendarEvent is a per-date registry of which Google event id
+// corresponds to which locally-computed event, so the sync engine can
+// create/update/delete precisely instead of guessing — see lib/calendarSync.ts.
+
+model AthleticScheduleSettings {
+  id        String  @id @default(cuid())
+  profileId String  @unique
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  weekdayWakeTime String @default("05:00") // "HH:MM", applies Mon-Fri
+  weekendWakeTime String @default("07:00") // Sat/Sun
+
+  getReadyMin      Int @default(20)
+  commuteToGymMin  Int @default(20)
+  gymDurationMin   Int @default(60)
+  runDurationMin   Int @default(60)
+  showerMin        Int @default(15)
+
+  // Keyed by Date#getUTCDay() as a string ("1".."5", Mon-Fri) -> minutes.
+  // Weekend keys are absent — no commute-to-work event is generated for
+  // Sat/Sun regardless of that day's schedule type.
+  commuteToWorkMinByWeekday Json @default("{\"1\":20,\"2\":30,\"3\":30,\"4\":20,\"5\":20}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("athletic_schedule_settings")
+}
+
+model GoogleCalendarConnection {
+  id        String  @id @default(cuid())
+  profileId String  @unique
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  accessToken  String
+  refreshToken String
+  tokenExpiry  DateTime
+  calendarId   String   @default("primary")
+  timeZone     String   @default("America/New_York") // IANA zone, fetched from the connected calendar at connect-time
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("google_calendar_connections")
+}
+
+model AthleticCalendarEvent {
+  id        String  @id @default(cuid())
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  date          DateTime
+  kind          String // "ACTIVITY" | "COMMUTE"
+  googleEventId String
+
+  createdAt DateTime @default(now())
+
+  @@unique([profileId, date, kind])
+  @@map("athletic_calendar_events")
+}
 
 model MealPlanItemOverride {
   id        String   @id @default(cuid())

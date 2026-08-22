@@ -9,7 +9,11 @@ import {
   setScheduleOverride,
   clearScheduleOverride,
   updateScheduleTemplate,
+  updateAthleticScheduleSettings,
+  disconnectGoogleCalendar,
 } from "@/app/actions";
+import { DEFAULT_ATHLETIC_SETTINGS, type AthleticScheduleSettingsLike } from "@/lib/calendarSync";
+import { googleCalendarConfigured } from "@/lib/googleCalendar";
 import { suggestNextLift, suggestNextRun, suggestNextBike, summarizeLiftSession, DEFAULT_WEIGHT_INCREMENT_LB, MAX_LIFT_SETS } from "@/lib/overload";
 import type { LiftSetEntry } from "@/lib/types";
 import {
@@ -36,9 +40,13 @@ function formatSetsLb(sets: LiftSetEntry[]): string {
   return sets.map((s) => `${kgToLb(s.weightKg)}lb×${s.reps}`).join(", ");
 }
 
-export default async function FitnessPage({ searchParams }: { searchParams: Promise<{ edit?: string }> }) {
+export default async function FitnessPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ edit?: string; calendarConnected?: string; calendarError?: string }>;
+}) {
   const profile = await requireActiveProfile();
-  const { edit } = await searchParams;
+  const { edit, calendarConnected, calendarError } = await searchParams;
 
   const [lifts, cardio, dayPlanRows, incrementRows, scheduleOverrideRows, scheduleTemplateRows] = await Promise.all([
     prisma.liftLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
@@ -55,7 +63,23 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   const cycleTemplate = resolveCycleTemplate(scheduleTemplateRows);
 
   if (edit === "1") {
-    return <EditView liftDays={liftDays} cycleTemplate={cycleTemplate} />;
+    const [connection, settingsRow] = await Promise.all([
+      prisma.googleCalendarConnection.findUnique({ where: { profileId: profile.id } }),
+      prisma.athleticScheduleSettings.findUnique({ where: { profileId: profile.id } }),
+    ]);
+    const settings: AthleticScheduleSettingsLike = settingsRow
+      ? { ...settingsRow, commuteToWorkMinByWeekday: settingsRow.commuteToWorkMinByWeekday as Record<string, number> }
+      : DEFAULT_ATHLETIC_SETTINGS;
+    return (
+      <EditView
+        liftDays={liftDays}
+        cycleTemplate={cycleTemplate}
+        calendarConnected={connection != null}
+        calendarConfigured={googleCalendarConfigured()}
+        settings={settings}
+        calendarNotice={calendarConnected === "1" ? "connected" : calendarError ? "error" : null}
+      />
+    );
   }
 
   const scheduleOverrideByDate = new Map<string, ScheduleDayType>();
@@ -374,7 +398,29 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   );
 }
 
-function EditView({ liftDays, cycleTemplate }: { liftDays: LiftDayDef[]; cycleTemplate: ScheduleDayType[] }) {
+const WEEKDAY_COMMUTE_FIELDS: { weekday: number; label: string }[] = [
+  { weekday: 1, label: "Mon" },
+  { weekday: 2, label: "Tue" },
+  { weekday: 3, label: "Wed" },
+  { weekday: 4, label: "Thu" },
+  { weekday: 5, label: "Fri" },
+];
+
+function EditView({
+  liftDays,
+  cycleTemplate,
+  calendarConnected,
+  calendarConfigured,
+  settings,
+  calendarNotice,
+}: {
+  liftDays: LiftDayDef[];
+  cycleTemplate: ScheduleDayType[];
+  calendarConnected: boolean;
+  calendarConfigured: boolean;
+  settings: AthleticScheduleSettingsLike;
+  calendarNotice: "connected" | "error" | null;
+}) {
   return (
     <div className="space-y-10">
       <div className="flex items-center justify-between mb-2">
@@ -451,6 +497,93 @@ function EditView({ liftDays, cycleTemplate }: { liftDays: LiftDayDef[]; cycleTe
             + Add a workout day
           </SubmitButton>
         </form>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-extrabold mb-1">Google Calendar</h2>
+        <p className="text-xs font-semibold opacity-60 mb-4">
+          Every change above — a day swap, a calendar rearrange, or the timing below — pushes straight to your Google
+          Calendar.
+        </p>
+
+        {calendarNotice === "connected" && <p className="text-xs font-bold text-theme-accent mb-3">Connected — your schedule is syncing.</p>}
+        {calendarNotice === "error" && (
+          <p className="text-xs font-bold text-red-500 mb-3">Something went wrong connecting Google Calendar — try again.</p>
+        )}
+
+        {!calendarConfigured ? (
+          <p className="text-xs font-semibold opacity-60">Not set up yet — Google OAuth credentials haven&apos;t been configured for this app.</p>
+        ) : !calendarConnected ? (
+          <a
+            href="/api/google-calendar/connect"
+            className="block w-full text-center px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition"
+          >
+            Connect Google Calendar
+          </a>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm font-bold text-theme-accent">Connected ✓</span>
+              <form action={disconnectGoogleCalendar}>
+                <SubmitButton className="text-xs font-bold opacity-60 underline underline-offset-4">Disconnect</SubmitButton>
+              </form>
+            </div>
+
+            <form action={updateAthleticScheduleSettings} className="space-y-2">
+              <Row>
+                <label htmlFor="weekdayWakeTime" className="text-base font-bold opacity-70">
+                  Weekday wake time
+                </label>
+                <input
+                  id="weekdayWakeTime"
+                  name="weekdayWakeTime"
+                  type="time"
+                  defaultValue={settings.weekdayWakeTime}
+                  className="text-right text-base font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
+                />
+              </Row>
+              <Row>
+                <label htmlFor="weekendWakeTime" className="text-base font-bold opacity-70">
+                  Weekend wake time
+                </label>
+                <input
+                  id="weekendWakeTime"
+                  name="weekendWakeTime"
+                  type="time"
+                  defaultValue={settings.weekendWakeTime}
+                  className="text-right text-base font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
+                />
+              </Row>
+              <Row>
+                <span className="text-base font-bold opacity-70">Durations (min)</span>
+                <div className="flex flex-wrap gap-3 justify-end">
+                  <InlineNumberField label="Get ready" name="getReadyMin" defaultValue={settings.getReadyMin} />
+                  <InlineNumberField label="To gym" name="commuteToGymMin" defaultValue={settings.commuteToGymMin} />
+                  <InlineNumberField label="Gym" name="gymDurationMin" defaultValue={settings.gymDurationMin} />
+                  <InlineNumberField label="Run" name="runDurationMin" defaultValue={settings.runDurationMin} />
+                  <InlineNumberField label="Shower" name="showerMin" defaultValue={settings.showerMin} />
+                </div>
+              </Row>
+              <div className="pt-2">
+                <div className="text-base font-bold opacity-70 mb-2">Commute to work (min)</div>
+                <div className="flex flex-wrap gap-3">
+                  {WEEKDAY_COMMUTE_FIELDS.map(({ weekday, label }) => (
+                    <InlineNumberField
+                      key={weekday}
+                      label={label}
+                      name={`commuteToWorkMin__${weekday}`}
+                      defaultValue={settings.commuteToWorkMinByWeekday[String(weekday)]}
+                      required={false}
+                    />
+                  ))}
+                </div>
+              </div>
+              <SubmitButton className="w-full mt-4 px-6 py-4 rounded-full bg-theme-accent text-theme-own text-lg font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
+                Save calendar settings
+              </SubmitButton>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );
