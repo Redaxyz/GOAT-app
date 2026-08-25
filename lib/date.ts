@@ -12,18 +12,14 @@ export function formatDateLabel(date: Date): string {
 }
 
 /**
- * "Today" rolls over at noon (local time), not midnight — logging stays on
- * the previous calendar day until noon of the next one. Stringified from
- * local date parts (not toDateInputValue's UTC conversion), since checking
- * local hours but formatting in UTC would disagree near timezone edges.
+ * "Today" is always the current Eastern-time calendar date, regardless of
+ * the server's own timezone (Vercel runs in UTC) — so it rolls over at
+ * midnight Eastern, not midnight UTC. "en-CA" is just the locale whose
+ * built-in date format happens to be YYYY-MM-DD; America/New_York handles
+ * the EST/EDT switch automatically.
  */
 export function today(): string {
-  const now = new Date();
-  if (now.getHours() < 12) now.setDate(now.getDate() - 1);
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
 
 export function addDays(isoDate: string, days: number): string {

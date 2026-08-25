@@ -2,7 +2,7 @@ import { requireActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { submitWeight, updateProfileSettings } from "@/app/actions";
 import { computePace } from "@/lib/progress";
-import { today, toDateInputValue } from "@/lib/date";
+import { today, toDateInputValue, addDays } from "@/lib/date";
 import { cmToFeetInches, kgToLb } from "@/lib/units";
 import WeightChart from "@/app/components/WeightChart";
 import BmiCalculator from "@/app/components/BmiCalculator";
@@ -23,13 +23,21 @@ export default async function ProgressPage() {
     }),
     prisma.dailyCheckIn.findMany({
       where: { profileId: profile.id },
-      select: { stuckToFitnessPlan: true, stuckToMealPlan: true },
+      select: { date: true, stuckToFitnessPlan: true, stuckToMealPlan: true, bmrReadingKcal: true },
     }),
   ]);
 
   const totalDays = checkIns.length;
   const fitnessSuccessDays = checkIns.filter((c) => c.stuckToFitnessPlan).length;
   const dietSuccessDays = checkIns.filter((c) => c.stuckToMealPlan).length;
+
+  const avgKcal = (rows: { bmrReadingKcal: number | null }[]): number | null => {
+    const values = rows.map((r) => r.bmrReadingKcal).filter((v): v is number => v != null);
+    return values.length ? Math.round(values.reduce((sum, v) => sum + v, 0) / values.length) : null;
+  };
+  const sevenDaysAgo = addDays(today(), -6); // 7-day window inclusive of today
+  const avgCaloriesAllTime = avgKcal(checkIns);
+  const avgCaloriesLast7Days = avgKcal(checkIns.filter((c) => toDateInputValue(c.date) >= sevenDaysAgo));
 
   const pace = computePace(profile, logs);
   const height = cmToFeetInches(profile.heightCm);
@@ -49,6 +57,11 @@ export default async function ProgressPage() {
           <div className="text-lg font-bold">
             Successful diet days: <span className="font-extrabold">{dietSuccessDays}</span>/{totalDays}
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-y-4 mb-6">
+          <Stat label="Avg. calorie burn (all time)" value={avgCaloriesAllTime != null ? `${avgCaloriesAllTime} kcal` : "—"} />
+          <Stat label="Avg. calorie burn (7 days)" value={avgCaloriesLast7Days != null ? `${avgCaloriesLast7Days} kcal` : "—"} />
         </div>
 
         <div className="grid grid-cols-2 gap-y-4 mb-6">
