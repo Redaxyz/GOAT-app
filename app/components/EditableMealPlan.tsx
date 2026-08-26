@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { setMealPlanItemAmount } from "@/app/actions";
 import { macroGrams, sumMacros, type MacroItem, type MealKey } from "@/lib/nutrition";
 
@@ -30,6 +30,10 @@ export default function EditableMealPlan({ days }: { days: DayPlan[] }) {
   });
   const router = useRouter();
   const [, startTransition] = useTransition();
+  // One save timer per field, keyed the same as `amounts` — so editing
+  // several items in a row debounces each independently instead of a single
+  // shared timer dropping all but the last-touched field.
+  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   function liveItem(day: string, meal: MealKey, it: MacroItem): MacroItem {
     const amount = amounts[amountKey(day, meal, it.groceryId)] ?? it.amount;
@@ -40,15 +44,18 @@ export default function EditableMealPlan({ days }: { days: DayPlan[] }) {
     const amount = value === "" ? 0 : Number(value);
     if (!Number.isFinite(amount)) return;
     setAmounts((prev) => ({ ...prev, [amountKey(day, meal, groceryId)]: amount }));
-  }
 
-  function handleBlur(day: string, meal: MealKey, groceryId: string) {
-    const amount = amounts[amountKey(day, meal, groceryId)];
-    if (amount == null) return;
-    startTransition(async () => {
-      await setMealPlanItemAmount(day, meal, groceryId, amount);
-      router.refresh();
-    });
+    // Debounced instead of saving on every keystroke/blur — that was
+    // refreshing the whole page (and jumping the scroll position) while
+    // still mid-edit.
+    const key = amountKey(day, meal, groceryId);
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(() => {
+      startTransition(async () => {
+        await setMealPlanItemAmount(day, meal, groceryId, amount);
+        router.refresh();
+      });
+    }, 900);
   }
 
   return (
@@ -61,17 +68,9 @@ export default function EditableMealPlan({ days }: { days: DayPlan[] }) {
         return (
           <div key={d.day}>
             <div className="text-base font-extrabold mb-2">{d.day}</div>
-            <EditableMealBlock label="Breakfast" day={d.day} meal="breakfast" items={breakfast} onChange={handleChange} onBlur={handleBlur} />
-            <EditableMealBlock
-              label="Lunch"
-              day={d.day}
-              meal="lunch"
-              items={lunch}
-              note={d.lunchNote}
-              onChange={handleChange}
-              onBlur={handleBlur}
-            />
-            <EditableMealBlock label="Dinner" day={d.day} meal="dinner" items={dinner} onChange={handleChange} onBlur={handleBlur} />
+            <EditableMealBlock label="Breakfast" day={d.day} meal="breakfast" items={breakfast} onChange={handleChange} />
+            <EditableMealBlock label="Lunch" day={d.day} meal="lunch" items={lunch} note={d.lunchNote} onChange={handleChange} />
+            <EditableMealBlock label="Dinner" day={d.day} meal="dinner" items={dinner} onChange={handleChange} />
             <div className="flex items-center justify-between text-sm font-extrabold pt-1">
               <span className="opacity-60">Day total</span>
               <span>
@@ -94,7 +93,6 @@ function EditableMealBlock({
   items,
   note,
   onChange,
-  onBlur,
 }: {
   label: string;
   day: string;
@@ -102,7 +100,6 @@ function EditableMealBlock({
   items: MacroItem[];
   note?: string;
   onChange: (day: string, meal: MealKey, groceryId: string, value: string) => void;
-  onBlur: (day: string, meal: MealKey, groceryId: string) => void;
 }) {
   return (
     <div className="mb-3">
@@ -124,7 +121,6 @@ function EditableMealBlock({
               step="1"
               value={it.amount}
               onChange={(e) => onChange(day, meal, it.groceryId, e.target.value)}
-              onBlur={() => onBlur(day, meal, it.groceryId)}
               className="w-14 text-right font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none"
             />
             {it.unit}

@@ -23,7 +23,10 @@ export default function BottomNav({ mirrored }: { mirrored: boolean }) {
   const order: TabItem[] = mirrored ? [GROCERY, FITNESS, HOME, PROGRESS, SWITCH] : [SWITCH, PROGRESS, HOME, FITNESS, GROCERY];
 
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-40 border-t-2 border-theme-accent/15 bg-background">
+    <nav
+      className="fixed bottom-0 inset-x-0 z-40 border-t-2 border-theme-accent/15 bg-background"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
       <div className="max-w-3xl mx-auto flex items-start">
         {order.map((item) => {
           const isHome = item.key === "home";
