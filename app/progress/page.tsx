@@ -2,8 +2,10 @@ import { requireActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { submitWeight, updateProfileSettings } from "@/app/actions";
 import { computePace } from "@/lib/progress";
-import { today, toDateInputValue, addDays } from "@/lib/date";
+import { today, toDateInputValue, addDays, daysBetween, mondayOfWeek, weekdayName, dateOnly } from "@/lib/date";
 import { cmToFeetInches, kgToLb } from "@/lib/units";
+import { getMealPlan, buildOverrideMap, type MealKey } from "@/lib/nutrition";
+import { buildFoodLogMap, getLoggedItems, sumLoggedMacros } from "@/lib/foodLog";
 import WeightChart from "@/app/components/WeightChart";
 import BmiCalculator from "@/app/components/BmiCalculator";
 import Row from "@/app/components/Row";
@@ -16,7 +18,10 @@ function toInputDate(date: Date | null): string {
 export default async function ProgressPage() {
   const profile = await requireActiveProfile();
 
-  const [logs, checkIns] = await Promise.all([
+  const todayStr = today();
+  const monday = mondayOfWeek(todayStr);
+
+  const [logs, checkIns, overrideRows, weekFoodLogRows] = await Promise.all([
     prisma.weightLog.findMany({
       where: { profileId: profile.id },
       orderBy: { date: "asc" },
@@ -25,6 +30,8 @@ export default async function ProgressPage() {
       where: { profileId: profile.id },
       select: { date: true, stuckToFitnessPlan: true, stuckToMealPlan: true, bmrReadingKcal: true },
     }),
+    prisma.mealPlanItemOverride.findMany({ where: { profileId: profile.id } }),
+    prisma.foodLog.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
   ]);
 
   const totalDays = checkIns.length;
@@ -35,9 +42,36 @@ export default async function ProgressPage() {
     const values = rows.map((r) => r.bmrReadingKcal).filter((v): v is number => v != null);
     return values.length ? Math.round(values.reduce((sum, v) => sum + v, 0) / values.length) : null;
   };
-  const sevenDaysAgo = addDays(today(), -6); // 7-day window inclusive of today
+  const sevenDaysAgo = addDays(todayStr, -6); // 7-day window inclusive of today
   const avgCaloriesAllTime = avgKcal(checkIns);
   const avgCaloriesLast7Days = avgKcal(checkIns.filter((c) => toDateInputValue(c.date) >= sevenDaysAgo));
+
+  // Weekly deficit: burned (from check-ins) minus eaten (from the food log),
+  // summed Monday->today, resetting each Monday. A day only counts once it
+  // has both a burned reading and at least one logged food item.
+  const overrides = buildOverrideMap(overrideRows);
+  const mealPlanByDay = new Map<string, ReturnType<typeof getMealPlan>[number]>(getMealPlan(overrides).map((d) => [d.day, d]));
+  const burnedByDate = new Map(checkIns.map((c) => [toDateInputValue(c.date), c.bmrReadingKcal]));
+
+  let weeklyDeficit = 0;
+  let daysCounted = 0;
+  for (let d = monday; d <= todayStr; d = addDays(d, 1)) {
+    const burned = burnedByDate.get(d);
+    const dayPlan = mealPlanByDay.get(weekdayName(d));
+    if (burned == null || !dayPlan) continue;
+
+    const foodLogMap = buildFoodLogMap(weekFoodLogRows.filter((r) => toDateInputValue(r.date) === d));
+    const mealGroups: { meal: MealKey; items: typeof dayPlan.breakfast }[] = [
+      { meal: "breakfast", items: dayPlan.breakfast },
+      { meal: "lunch", items: dayPlan.lunch },
+      { meal: "dinner", items: dayPlan.dinner },
+    ];
+    const eaten = sumLoggedMacros(getLoggedItems(mealGroups, foodLogMap));
+    if (eaten.itemsLogged === 0) continue;
+
+    weeklyDeficit += burned - eaten.calories;
+    daysCounted++;
+  }
 
   const pace = computePace(profile, logs);
   const height = cmToFeetInches(profile.heightCm);
@@ -59,9 +93,16 @@ export default async function ProgressPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-y-4 mb-6">
+        <div className="grid grid-cols-2 gap-y-4 mb-2">
           <Stat label="Avg. calorie burn (all time)" value={avgCaloriesAllTime != null ? `${avgCaloriesAllTime} kcal` : "—"} />
           <Stat label="Avg. calorie burn (7 days)" value={avgCaloriesLast7Days != null ? `${avgCaloriesLast7Days} kcal` : "—"} />
+        </div>
+
+        <div className="mb-6">
+          <Stat label="Weekly deficit (Mon–today)" value={daysCounted > 0 ? `${weeklyDeficit} kcal` : "—"} />
+          <p className="text-xs font-semibold opacity-50 mt-0.5">
+            Burned minus eaten, {daysCounted} of {daysBetween(monday, todayStr) + 1} days logged this week. Resets every Monday.
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-y-4 mb-6">

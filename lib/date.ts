@@ -49,3 +49,10 @@ export function isSunday(isoDate: string): boolean {
 export function weekdayName(isoDate: string): string {
   return dateOnly(isoDate).toLocaleDateString(undefined, { weekday: "long", timeZone: "UTC" });
 }
+
+/** The Monday (inclusive) of the calendar week containing isoDate. */
+export function mondayOfWeek(isoDate: string): string {
+  const dow = dayOfWeekIndex(isoDate); // 0=Sun..6=Sat
+  const daysSinceMonday = dow === 0 ? 6 : dow - 1;
+  return addDays(isoDate, -daysSinceMonday);
+}
