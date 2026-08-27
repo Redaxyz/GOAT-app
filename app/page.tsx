@@ -73,22 +73,33 @@ async function TodaySections({ profileId }: { profileId: string }) {
 
   const todayWeekday = weekdayName(todayStr);
 
-  const [yesterdayCheckIn, fitnessData, overrideRows, foodLogRows, dateSwapRows, weekdaySwapRows, snackRows, customFoodItems, foodLogComplete] =
-    await Promise.all([
-      prisma.dailyCheckIn.findUnique({ where: { profileId_date: { profileId, date: dateOnly(yesterday) } } }),
-      getFitnessData(profileId),
-      prisma.mealPlanItemOverride.findMany({ where: { profileId } }),
-      prisma.foodLog.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
-      prisma.foodItemSwap.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
-      prisma.mealPlanItemSwap.findMany({ where: { profileId, day: todayWeekday } }),
-      prisma.snackLog.findMany({ where: { profileId, date: dateOnly(todayStr) }, orderBy: { createdAt: "asc" } }),
-      prisma.customFoodItem.findMany({ where: { profileId }, orderBy: { name: "asc" } }),
-      prisma.dailyFoodLogComplete.findUnique({ where: { profileId_date: { profileId, date: dateOnly(todayStr) } } }),
-    ]);
+  const [
+    yesterdayCheckIn,
+    fitnessData,
+    overrideRows,
+    foodLogRows,
+    dateSwapRows,
+    weekdaySwapRows,
+    snackRows,
+    customFoodItems,
+    foodLogComplete,
+    extraItemRows,
+  ] = await Promise.all([
+    prisma.dailyCheckIn.findUnique({ where: { profileId_date: { profileId, date: dateOnly(yesterday) } } }),
+    getFitnessData(profileId),
+    prisma.mealPlanItemOverride.findMany({ where: { profileId } }),
+    prisma.foodLog.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
+    prisma.foodItemSwap.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
+    prisma.mealPlanItemSwap.findMany({ where: { profileId, day: todayWeekday } }),
+    prisma.snackLog.findMany({ where: { profileId, date: dateOnly(todayStr) }, orderBy: { createdAt: "asc" } }),
+    prisma.customFoodItem.findMany({ where: { profileId }, orderBy: { name: "asc" } }),
+    prisma.dailyFoodLogComplete.findUnique({ where: { profileId_date: { profileId, date: dateOnly(todayStr) } } }),
+    prisma.mealPlanExtraItem.findMany({ where: { profileId, day: todayWeekday }, include: { customFoodItem: true } }),
+  ]);
 
   const overrides = buildOverrideMap(overrideRows);
   const weekdaySwaps = buildMealPlanSwapMap(weekdaySwapRows);
-  const todayPlan = getMealPlan(overrides, weekdaySwaps).find((d) => d.day === todayWeekday);
+  const todayPlan = getMealPlan(overrides, weekdaySwaps, customFoodItems, extraItemRows).find((d) => d.day === todayWeekday);
 
   const initialFoodLog: Record<string, number> = {};
   for (const row of foodLogRows) initialFoodLog[foodLogKey(row.meal as MealKey, row.groceryId)] = row.amountG;

@@ -8,16 +8,17 @@ import SubmitButton from "@/app/components/SubmitButton";
 export default async function GroceryPage() {
   const profile = await requireActiveProfile();
 
-  const [overrideRows, swapRows, customFoodItems] = await Promise.all([
+  const [overrideRows, swapRows, customFoodItems, extraItemRows] = await Promise.all([
     prisma.mealPlanItemOverride.findMany({ where: { profileId: profile.id } }),
     prisma.mealPlanItemSwap.findMany({ where: { profileId: profile.id } }),
     prisma.customFoodItem.findMany({ where: { profileId: profile.id }, orderBy: { createdAt: "desc" } }),
+    prisma.mealPlanExtraItem.findMany({ where: { profileId: profile.id }, include: { customFoodItem: true } }),
   ]);
   const overrides = buildOverrideMap(overrideRows);
   const swaps = buildMealPlanSwapMap(swapRows);
 
-  const groceryList = getGroceryList(overrides, swaps);
-  const mealPlan = getMealPlan(overrides, swaps);
+  const groceryList = getGroceryList(overrides, swaps, customFoodItems, extraItemRows);
+  const mealPlan = getMealPlan(overrides, swaps, customFoodItems, extraItemRows);
 
   return (
     <div className="space-y-10">
@@ -39,7 +40,7 @@ export default async function GroceryPage() {
           Tap any serving size to change it — its protein/carb/fat, the day&apos;s totals, and the grocery list above all
           update from that.
         </p>
-        <EditableMealPlan days={mealPlan} overrideRows={overrideRows} />
+        <EditableMealPlan days={mealPlan} overrideRows={overrideRows} customFoodItems={customFoodItems} />
       </section>
 
       <section>
@@ -76,7 +77,19 @@ export default async function GroceryPage() {
               <option value="raw">Raw</option>
               <option value="cooked">Cooked</option>
             </select>
+            <select
+              name="category"
+              defaultValue="other"
+              className="text-sm font-bold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
+            >
+              <option value="protein">Protein</option>
+              <option value="carb">Carb</option>
+              <option value="other">Other</option>
+            </select>
           </div>
+          <p className="text-xs font-semibold opacity-50">
+            Protein/carb foods also join the lunch and dinner swap dropdowns; other just adds it here and to the full food list.
+          </p>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-1 text-sm font-bold opacity-70">
               <input
@@ -127,7 +140,7 @@ export default async function GroceryPage() {
               <div className="min-w-0">
                 <div className="font-extrabold truncate">{food.name}</div>
                 <div className="text-xs font-semibold opacity-60">
-                  {food.amountG}g ({food.state}) — {calories} cal — {food.proteinG}P {food.carbG}C {food.fatG}F
+                  {food.amountG}g ({food.state}, {food.category}) — {calories} cal — {food.proteinG}P {food.carbG}C {food.fatG}F
                 </div>
               </div>
               <form action={deleteCustomFoodItem}>

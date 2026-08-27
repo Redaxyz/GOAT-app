@@ -49,6 +49,7 @@ model Profile {
   customFoodItems      CustomFoodItem[]
   snackLogs            SnackLog[]
   foodLogCompletes     DailyFoodLogComplete[]
+  mealPlanExtraItems   MealPlanExtraItem[]
 
   @@map("profiles")
 }
@@ -314,11 +315,14 @@ model CustomFoodItem {
   name      String
   amountG   Float
   state     String // "raw" | "cooked"
+  category  String   @default("other") // "protein" | "carb" | "other" — protein/carb entries also join the lunch/dinner meat/carb swap dropdowns (see lib/nutrition.ts)
   proteinG  Float
   carbG     Float
   fatG      Float
 
   createdAt DateTime @default(now())
+
+  extraItemUsages MealPlanExtraItem[]
 
   @@map("custom_food_items")
 }
@@ -364,4 +368,27 @@ model DailyFoodLogComplete {
 
   @@unique([profileId, date])
   @@map("daily_food_log_complete")
+}
+
+// ---- Nutrition: extra items added to the standing plan ---------------------
+// A saved CustomFoodItem added as an EXTRA row to a specific weekday's meal —
+// on top of the fixed breakfast/lunch/dinner items, not replacing any of them
+// (that's what MealPlanItemSwap is for). Weekday-scoped like the rest of the
+// standing plan, so it feeds the grocery list and Home the same way.
+
+model MealPlanExtraItem {
+  id               String         @id @default(cuid())
+  profileId        String
+  profile          Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  day              String
+  meal             String
+  customFoodItemId String
+  customFoodItem   CustomFoodItem @relation(fields: [customFoodItemId], references: [id], onDelete: Cascade)
+  amountG          Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, day, meal, customFoodItemId])
+  @@map("meal_plan_extra_items")
 }

@@ -2,8 +2,20 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
-import { setMealPlanItemAmount, setMealPlanItemSwap } from "@/app/actions";
-import { applyFoodSwaps, buildOverrideMap, foodSwapKey, macroGrams, sumMacros, type MacroItem, type MealKey } from "@/lib/nutrition";
+import { setMealPlanItemAmount, setMealPlanItemSwap, addMealPlanExtraItem, updateMealPlanExtraItemAmount, deleteMealPlanExtraItem } from "@/app/actions";
+import {
+  applyFoodSwaps,
+  buildOverrideMap,
+  foodSwapKey,
+  groupFoodOptions,
+  customFoodToOption,
+  macroGrams,
+  sumMacros,
+  type CustomFoodRow,
+  type MacroItem,
+  type MealKey,
+} from "@/lib/nutrition";
+import SubmitButton from "@/app/components/SubmitButton";
 
 type DayPlan = {
   day: string;
@@ -24,9 +36,19 @@ function amountKey(day: string, meal: MealKey, groceryId: string): string {
  * swapping an item for one of its alternatives, recomputes that item's
  * P/C/F, the day's totals, and (after a short save) the grocery list above,
  * live. Persisted to the STANDING plan for that weekday going forward, not
- * just today (see setMealPlanItemAmount / setMealPlanItemSwap).
+ * just today (see setMealPlanItemAmount / setMealPlanItemSwap). Each meal
+ * also has an "+ Add" row to pull in anything from My Foods as an extra
+ * item (see addMealPlanExtraItem), on top of the fixed plan.
  */
-export default function EditableMealPlan({ days, overrideRows }: { days: DayPlan[]; overrideRows: OverrideRow[] }) {
+export default function EditableMealPlan({
+  days,
+  overrideRows,
+  customFoodItems,
+}: {
+  days: DayPlan[];
+  overrideRows: OverrideRow[];
+  customFoodItems: CustomFoodRow[];
+}) {
   const [amounts, setAmounts] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
     for (const d of days) {
@@ -59,19 +81,20 @@ export default function EditableMealPlan({ days, overrideRows }: { days: DayPlan
     return swapped.map((it) => liveItem(day, meal, it));
   }
 
-  function handleChange(day: string, meal: MealKey, groceryId: string, value: string) {
+  function handleChange(day: string, meal: MealKey, it: MacroItem, value: string) {
     const amount = value === "" ? 0 : Number(value);
     if (!Number.isFinite(amount)) return;
-    setAmounts((prev) => ({ ...prev, [amountKey(day, meal, groceryId)]: amount }));
+    const key = amountKey(day, meal, it.groceryId);
+    setAmounts((prev) => ({ ...prev, [key]: amount }));
 
     // Debounced instead of saving on every keystroke/blur — that was
     // refreshing the whole page (and jumping the scroll position) while
     // still mid-edit.
-    const key = amountKey(day, meal, groceryId);
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
     saveTimers.current[key] = setTimeout(() => {
       startTransition(async () => {
-        await setMealPlanItemAmount(day, meal, groceryId, amount);
+        if (it.extraItemId) await updateMealPlanExtraItemAmount(it.extraItemId, amount);
+        else await setMealPlanItemAmount(day, meal, it.groceryId, amount);
         router.refresh();
       });
     }, 900);
@@ -95,17 +118,34 @@ export default function EditableMealPlan({ days, overrideRows }: { days: DayPlan
         return (
           <div key={d.day}>
             <div className="text-base font-extrabold mb-2">{d.day}</div>
-            <EditableMealBlock label="Breakfast" day={d.day} meal="breakfast" items={breakfast} onChange={handleChange} onSwapChange={handleSwapChange} />
+            <EditableMealBlock
+              label="Breakfast"
+              day={d.day}
+              meal="breakfast"
+              items={breakfast}
+              customFoodItems={customFoodItems}
+              onChange={handleChange}
+              onSwapChange={handleSwapChange}
+            />
             <EditableMealBlock
               label="Lunch"
               day={d.day}
               meal="lunch"
               items={lunch}
               note={d.lunchNote}
+              customFoodItems={customFoodItems}
               onChange={handleChange}
               onSwapChange={handleSwapChange}
             />
-            <EditableMealBlock label="Dinner" day={d.day} meal="dinner" items={dinner} onChange={handleChange} onSwapChange={handleSwapChange} />
+            <EditableMealBlock
+              label="Dinner"
+              day={d.day}
+              meal="dinner"
+              items={dinner}
+              customFoodItems={customFoodItems}
+              onChange={handleChange}
+              onSwapChange={handleSwapChange}
+            />
             <div className="flex items-center justify-between text-sm font-extrabold pt-1">
               <span className="opacity-60">Day total</span>
               <span>
@@ -127,6 +167,7 @@ function EditableMealBlock({
   meal,
   items,
   note,
+  customFoodItems,
   onChange,
   onSwapChange,
 }: {
@@ -135,9 +176,12 @@ function EditableMealBlock({
   meal: MealKey;
   items: MacroItem[];
   note?: string;
-  onChange: (day: string, meal: MealKey, groceryId: string, value: string) => void;
+  customFoodItems: CustomFoodRow[];
+  onChange: (day: string, meal: MealKey, it: MacroItem, value: string) => void;
   onSwapChange: (day: string, meal: MealKey, slot: string, groceryId: string) => void;
 }) {
+  const [adding, setAdding] = useState(false);
+
   return (
     <div className="mb-3">
       <div className="text-sm font-bold opacity-60 mb-1">{label}</div>
@@ -163,7 +207,17 @@ function EditableMealBlock({
               ))}
             </select>
           ) : (
-            <span className="truncate">{it.item}</span>
+            <span className="flex items-center gap-1 min-w-0">
+              <span className="truncate">{it.item}</span>
+              {it.extraItemId && (
+                <form action={deleteMealPlanExtraItem}>
+                  <input type="hidden" name="id" value={it.extraItemId} />
+                  <button type="submit" className="text-base font-bold opacity-40 hover:opacity-80 transition leading-none shrink-0" aria-label={`Remove ${it.item}`}>
+                    ×
+                  </button>
+                </form>
+              )}
+            </span>
           )}
           <span className="flex items-center justify-end gap-1 whitespace-nowrap">
             <input
@@ -171,7 +225,7 @@ function EditableMealBlock({
               min="0"
               step="1"
               value={it.amount}
-              onChange={(e) => onChange(day, meal, it.groceryId, e.target.value)}
+              onChange={(e) => onChange(day, meal, it, e.target.value)}
               className="w-14 text-right font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none"
             />
             {it.unit}
@@ -182,6 +236,80 @@ function EditableMealBlock({
         </div>
       ))}
       {note && <div className="text-xs font-semibold opacity-50 pt-1">{note}</div>}
+
+      {adding ? (
+        <AddExtraItemForm day={day} meal={meal} customFoodItems={customFoodItems} onDone={() => setAdding(false)} />
+      ) : (
+        <button type="button" onClick={() => setAdding(true)} className="text-xs font-bold text-theme-accent underline underline-offset-4 mt-1">
+          + Add
+        </button>
+      )}
     </div>
+  );
+}
+
+function AddExtraItemForm({
+  day,
+  meal,
+  customFoodItems,
+  onDone,
+}: {
+  day: string;
+  meal: MealKey;
+  customFoodItems: CustomFoodRow[];
+  onDone: () => void;
+}) {
+  const groups = groupFoodOptions(customFoodItems.map(customFoodToOption));
+
+  if (customFoodItems.length === 0) {
+    return (
+      <div className="mt-2 p-2 rounded-xl border-2 border-theme-accent/20 bg-theme-accent/5 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold opacity-60">No saved foods yet — add one under My foods below first.</span>
+        <button type="button" onClick={onDone} className="text-xs font-bold opacity-50 hover:opacity-80 transition shrink-0">
+          Close
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      action={addMealPlanExtraItem}
+      onSubmit={onDone}
+      className="mt-2 p-2 rounded-xl border-2 border-theme-accent/20 bg-theme-accent/5 flex items-center gap-2 flex-wrap"
+    >
+      <input type="hidden" name="day" value={day} />
+      <input type="hidden" name="meal" value={meal} />
+      <select
+        name="customFoodItemId"
+        required
+        className="flex-1 min-w-[9rem] truncate text-xs font-bold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
+      >
+        {groups.map((g) => (
+          <optgroup key={g.category} label={g.label}>
+            {g.options.map((o) => (
+              <option key={o.groceryId} value={o.groceryId}>
+                {o.item}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <input
+        type="number"
+        name="amountG"
+        min="0"
+        step="1"
+        required
+        placeholder="g"
+        className="w-14 text-right text-xs font-bold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
+      />
+      <SubmitButton className="px-3 py-1 rounded-full bg-theme-accent text-theme-own text-xs font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
+        Add
+      </SubmitButton>
+      <button type="button" onClick={onDone} className="text-xs font-bold opacity-50 hover:opacity-80 transition">
+        Cancel
+      </button>
+    </form>
   );
 }

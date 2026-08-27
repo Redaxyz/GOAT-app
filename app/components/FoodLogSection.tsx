@@ -4,13 +4,12 @@ import { useState, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { logFoodItem, setFoodItemSwap, addSnack, deleteSnack } from "@/app/actions";
 import { foodLogKey, getLoggedItems, sumLoggedMacros } from "@/lib/foodLog";
-import { macroGrams, ALL_FOOD_OPTIONS, type MacroItem, type MealKey } from "@/lib/nutrition";
+import { macroGrams, allFoodOptions, groupFoodOptions, type CustomFoodRow, type MacroItem, type MealKey } from "@/lib/nutrition";
 import SubmitButton from "@/app/components/SubmitButton";
 
 type MealGroup = { meal: MealKey; label: string; items: MacroItem[] };
 type TargetTotal = { calories: number; proteinG: number; carbG: number; fatG: number };
 type SnackEntry = { id: string; label: string; amountG: number | null; proteinG: number; carbG: number; fatG: number };
-type CustomFood = { id: string; name: string; amountG: number };
 
 /**
  * Today's meal plan, editable into an actual food log: each item's box shows
@@ -31,7 +30,7 @@ export default function FoodLogSection({
   initialFoodLog: Record<string, number>;
   targetTotal: TargetTotal;
   initialSnacks: SnackEntry[];
-  customFoodItems: CustomFood[];
+  customFoodItems: CustomFoodRow[];
 }) {
   const [amounts, setAmounts] = useState<Record<string, number | null>>(() => {
     const init: Record<string, number | null> = {};
@@ -167,7 +166,7 @@ function MealBlock({
 }
 
 /** Ad-hoc extras on top of the fixed plan above — pulled from the meal catalog, a saved custom food, or typed in free-hand. */
-function SnacksSection({ dateStr, snacks, customFoodItems }: { dateStr: string; snacks: SnackEntry[]; customFoodItems: CustomFood[] }) {
+function SnacksSection({ dateStr, snacks, customFoodItems }: { dateStr: string; snacks: SnackEntry[]; customFoodItems: CustomFoodRow[] }) {
   const [adding, setAdding] = useState(false);
 
   return (
@@ -210,39 +209,30 @@ function SnacksSection({ dateStr, snacks, customFoodItems }: { dateStr: string; 
 const fieldClass =
   "text-sm font-bold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1";
 
-function AddSnackForm({ dateStr, customFoodItems, onDone }: { dateStr: string; customFoodItems: CustomFood[]; onDone: () => void }) {
-  const [source, setSource] = useState<"catalog" | "custom" | "other">("catalog");
+function AddSnackForm({ dateStr, customFoodItems, onDone }: { dateStr: string; customFoodItems: CustomFoodRow[]; onDone: () => void }) {
+  const [source, setSource] = useState<"catalog" | "other">("catalog");
+  const groups = groupFoodOptions(allFoodOptions(customFoodItems));
 
   return (
     <form action={addSnack} onSubmit={onDone} className="mt-2 p-3 rounded-2xl border-2 border-theme-accent/20 bg-theme-accent/5 space-y-2">
       <input type="hidden" name="date" value={dateStr} />
       <input type="hidden" name="source" value={source} />
       <select value={source} onChange={(e) => setSource(e.target.value as typeof source)} className={fieldClass}>
-        <option value="catalog">From meal foods</option>
-        {customFoodItems.length > 0 && <option value="custom">From my foods</option>}
+        <option value="catalog">From foods</option>
         <option value="other">Other</option>
       </select>
 
       {source === "catalog" && (
         <div className="flex items-center gap-2 flex-wrap">
           <select name="groceryId" required className={`flex-1 min-w-[9rem] truncate ${fieldClass}`}>
-            {ALL_FOOD_OPTIONS.map((o) => (
-              <option key={o.groceryId} value={o.groceryId}>
-                {o.item}
-              </option>
-            ))}
-          </select>
-          <input type="number" name="amountG" min="0" step="1" required placeholder="g" className={`w-16 text-right ${fieldClass}`} />
-        </div>
-      )}
-
-      {source === "custom" && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <select name="customFoodItemId" required className={`flex-1 min-w-[9rem] truncate ${fieldClass}`}>
-            {customFoodItems.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
+            {groups.map((g) => (
+              <optgroup key={g.category} label={g.label}>
+                {g.options.map((o) => (
+                  <option key={o.groceryId} value={o.groceryId}>
+                    {o.item}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <input type="number" name="amountG" min="0" step="1" required placeholder="g" className={`w-16 text-right ${fieldClass}`} />

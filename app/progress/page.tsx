@@ -21,7 +21,7 @@ export default async function ProgressPage() {
   const todayStr = today();
   const monday = mondayOfWeek(todayStr);
 
-  const [logs, checkIns, overrideRows, weekFoodLogRows, weekdaySwapRows, weekDateSwapRows] = await Promise.all([
+  const [logs, checkIns, overrideRows, weekFoodLogRows, weekdaySwapRows, weekDateSwapRows, customFoodItems, extraItemRows] = await Promise.all([
     prisma.weightLog.findMany({
       where: { profileId: profile.id },
       orderBy: { date: "asc" },
@@ -34,6 +34,8 @@ export default async function ProgressPage() {
     prisma.foodLog.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
     prisma.mealPlanItemSwap.findMany({ where: { profileId: profile.id } }),
     prisma.foodItemSwap.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
+    prisma.customFoodItem.findMany({ where: { profileId: profile.id } }),
+    prisma.mealPlanExtraItem.findMany({ where: { profileId: profile.id }, include: { customFoodItem: true } }),
   ]);
 
   const totalDays = checkIns.length;
@@ -53,7 +55,9 @@ export default async function ProgressPage() {
   // has both a burned reading and at least one logged food item.
   const overrides = buildOverrideMap(overrideRows);
   const weekdaySwaps = buildMealPlanSwapMap(weekdaySwapRows);
-  const mealPlanByDay = new Map<string, ReturnType<typeof getMealPlan>[number]>(getMealPlan(overrides, weekdaySwaps).map((d) => [d.day, d]));
+  const mealPlanByDay = new Map<string, ReturnType<typeof getMealPlan>[number]>(
+    getMealPlan(overrides, weekdaySwaps, customFoodItems, extraItemRows).map((d) => [d.day, d])
+  );
   const burnedByDate = new Map(checkIns.map((c) => [toDateInputValue(c.date), c.bmrReadingKcal]));
 
   let weeklyDeficit = 0;

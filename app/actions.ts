@@ -7,7 +7,7 @@ import { getActiveProfile, setActiveProfileCookie, clearActiveProfileCookie, ens
 import { feetInchesToCm, lbToKg, kgToLb } from "@/lib/units";
 import { DEFAULT_LIFT_DAYS, DEFAULT_CYCLE_TYPE_TEMPLATE, parseExercisesText, type ScheduleDayType } from "@/lib/schedule";
 import { MAX_LIFT_SETS } from "@/lib/overload";
-import { ALL_FOOD_OPTIONS, macroGrams, type MealKey } from "@/lib/nutrition";
+import { allFoodOptions, macroGrams, type MealKey } from "@/lib/nutrition";
 import { dateOnly } from "@/lib/date";
 import type { ProfileSlug, CardioType, LiftSetEntry } from "@/lib/types";
 
@@ -317,7 +317,7 @@ export async function setMealPlanItemSwap(day: string, meal: MealKey, slot: stri
   revalidatePath("/progress");
 }
 
-/** Adds a user-defined food to the Grocery page's personal food list — P/F/C given for one reference weight, raw or cooked. */
+/** Adds a user-defined food to the Grocery page's personal food list — P/F/C given for one reference weight, raw or cooked. A "protein"/"carb" category also joins that food to the lunch/dinner meat/carb swap dropdowns everywhere (see lib/nutrition.ts). */
 export async function addCustomFoodItem(formData: FormData) {
   const profile = await getActiveProfile();
   if (!profile) throw new Error("No active profile");
@@ -328,17 +328,23 @@ export async function addCustomFoodItem(formData: FormData) {
   const carbG = Number(requireString(formData, "carbG"));
   const fatG = Number(requireString(formData, "fatG"));
   const state = requireString(formData, "state");
+  const category = requireString(formData, "category");
 
   if (![amountG, proteinG, carbG, fatG].every((n) => Number.isFinite(n) && n >= 0)) {
     throw new Error("Weight and macros must be non-negative numbers");
   }
   if (state !== "raw" && state !== "cooked") throw new Error("State must be raw or cooked");
+  if (!["protein", "carb", "other"].includes(category)) throw new Error("Category must be protein, carb, or other");
 
   await prisma.customFoodItem.create({
-    data: { profileId: profile.id, name, amountG, proteinG, carbG, fatG, state },
+    data: { profileId: profile.id, name, amountG, proteinG, carbG, fatG, state, category },
   });
 
+  // A new protein/carb food should show up in the meat/carb dropdowns
+  // immediately — those are read on Home and Progress too, not just Grocery.
   revalidatePath("/grocery");
+  revalidatePath("/");
+  revalidatePath("/progress");
 }
 
 async function requireOwnedCustomFoodItem(id: string, profileId: string) {
@@ -354,17 +360,76 @@ export async function deleteCustomFoodItem(formData: FormData) {
   const id = requireString(formData, "id");
   await requireOwnedCustomFoodItem(id, profile.id);
 
+  // Cascades to any MealPlanExtraItem rows using this food (see schema).
   await prisma.customFoodItem.delete({ where: { id } });
   revalidatePath("/grocery");
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+/** Adds a saved custom food as an extra row on the STANDING plan for a weekday's meal — on top of the fixed plan items, not replacing any of them (that's setMealPlanItemSwap's job). */
+export async function addMealPlanExtraItem(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const day = requireString(formData, "day");
+  const meal = requireString(formData, "meal");
+  const customFoodItemId = requireString(formData, "customFoodItemId");
+  const amountG = Number(requireString(formData, "amountG"));
+  if (!Number.isFinite(amountG) || amountG < 0) throw new Error("Amount must be a non-negative number");
+
+  const food = await prisma.customFoodItem.findUnique({ where: { id: customFoodItemId } });
+  if (!food || food.profileId !== profile.id) throw new Error("Food item not found");
+
+  await prisma.mealPlanExtraItem.upsert({
+    where: { profileId_day_meal_customFoodItemId: { profileId: profile.id, day, meal, customFoodItemId } },
+    update: { amountG },
+    create: { profileId: profile.id, day, meal, customFoodItemId, amountG },
+  });
+
+  revalidatePath("/grocery");
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+/** Live amount edits on an already-added extra item — called imperatively (like setFoodItemSwap), not through a plain form. */
+export async function updateMealPlanExtraItemAmount(id: string, amountG: number) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+  if (!Number.isFinite(amountG) || amountG < 0) throw new Error("Amount must be a non-negative number");
+
+  const existing = await prisma.mealPlanExtraItem.findUnique({ where: { id } });
+  if (!existing || existing.profileId !== profile.id) throw new Error("Item not found");
+
+  await prisma.mealPlanExtraItem.update({ where: { id }, data: { amountG } });
+
+  revalidatePath("/grocery");
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+export async function deleteMealPlanExtraItem(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const id = requireString(formData, "id");
+  const existing = await prisma.mealPlanExtraItem.findUnique({ where: { id } });
+  if (!existing || existing.profileId !== profile.id) throw new Error("Item not found");
+
+  await prisma.mealPlanExtraItem.delete({ where: { id } });
+
+  revalidatePath("/grocery");
+  revalidatePath("/");
+  revalidatePath("/progress");
 }
 
 /**
  * Logs one ad-hoc snack for a specific date — distinct from logFoodItem
  * above, which only logs amounts against the fixed plan's existing slots.
- * `source` picks how the macros are resolved: "catalog" looks up a plan food
- * by groceryId and computes P/C/F from its per100g rate; "custom" scales a
- * saved CustomFoodItem's macros from its reference weight to the amount
- * given here; "other" takes the macros as typed, with no weight/rate at all.
+ * `source` picks how the macros are resolved: "catalog" looks up a food (a
+ * plan item or a saved custom food — allFoodOptions covers both) by
+ * groceryId and computes P/C/F from its per100g rate; "other" takes the
+ * macros as typed, with no weight/rate at all.
  */
 export async function addSnack(formData: FormData) {
   const profile = await getActiveProfile();
@@ -381,23 +446,13 @@ export async function addSnack(formData: FormData) {
 
   if (source === "catalog") {
     const groceryId = requireString(formData, "groceryId");
-    const option = ALL_FOOD_OPTIONS.find((o) => o.groceryId === groceryId);
+    const customFoods = await prisma.customFoodItem.findMany({ where: { profileId: profile.id } });
+    const option = allFoodOptions(customFoods).find((o) => o.groceryId === groceryId);
     if (!option) throw new Error("Unknown food");
     amountG = Number(requireString(formData, "amountG"));
     if (!Number.isFinite(amountG) || amountG < 0) throw new Error("Amount must be a non-negative number");
     label = option.item;
     ({ proteinG, carbG, fatG } = macroGrams(amountG, option.per100g));
-  } else if (source === "custom") {
-    const customFoodItemId = requireString(formData, "customFoodItemId");
-    const food = await prisma.customFoodItem.findUnique({ where: { id: customFoodItemId } });
-    if (!food || food.profileId !== profile.id) throw new Error("Food item not found");
-    amountG = Number(requireString(formData, "amountG"));
-    if (!Number.isFinite(amountG) || amountG < 0) throw new Error("Amount must be a non-negative number");
-    const scale = food.amountG > 0 ? amountG / food.amountG : 0;
-    label = food.name;
-    proteinG = Math.round(food.proteinG * scale);
-    carbG = Math.round(food.carbG * scale);
-    fatG = Math.round(food.fatG * scale);
   } else if (source === "other") {
     label = requireString(formData, "label");
     proteinG = Number(requireString(formData, "proteinG"));
