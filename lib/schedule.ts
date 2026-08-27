@@ -44,9 +44,12 @@ export function parseExercisesText(text: string): string[] {
 // drifts regardless of when the app is opened.
 const CYCLE_ANCHOR = "2026-08-17"; // a Monday
 
-export type ScheduleDayType = "GYM" | "RUN" | "BIKE" | "REST";
+export type ScheduleDayType = "GYM" | "RUN" | "BIKE" | "REST" | "OTHER";
 
-export type ScheduleEntry = { type: ScheduleDayType; dayKey: DayKey | null };
+/** A saved per-date override — customLabel only applies when type is "OTHER". */
+export type ScheduleOverrideInfo = { type: ScheduleDayType; customLabel: string | null };
+
+export type ScheduleEntry = { type: ScheduleDayType; dayKey: DayKey | null; customLabel?: string | null };
 
 // Only the *type* per slot is a built-in default; a profile can rearrange it
 // slot by slot through the edit view (see ScheduleTemplate / resolveCycleTemplate).
@@ -115,14 +118,19 @@ export function templateEntryForDate(isoDate: string, liftDays: LiftDayDef[], cy
  */
 export function effectiveEntryForDate(
   isoDate: string,
-  override: ScheduleDayType | null,
+  override: ScheduleOverrideInfo | null,
   liftDays: LiftDayDef[],
   cycleTemplate: ScheduleDayType[]
 ): ScheduleEntry {
   const template = templateEntryForDate(isoDate, liftDays, cycleTemplate);
-  if (override == null || override === template.type) return template;
-  if (override === "GYM") return { type: "GYM", dayKey: template.type === "GYM" ? template.dayKey : null };
-  return { type: override, dayKey: null };
+  if (override == null || override.type === template.type) return template;
+  if (override.type === "GYM") return { type: "GYM", dayKey: template.type === "GYM" ? template.dayKey : null };
+  return { type: override.type, dayKey: null, customLabel: override.type === "OTHER" ? override.customLabel : null };
+}
+
+/** Display label for an entry — the type's fixed name, or the custom text for an "OTHER" day. */
+export function entryLabel(entry: ScheduleEntry): string {
+  return entry.type === "OTHER" ? entry.customLabel || "Other" : SCHEDULE_TYPE_LABEL[entry.type];
 }
 
 export const SCHEDULE_TYPE_LABEL: Record<ScheduleDayType, string> = {
@@ -130,4 +138,5 @@ export const SCHEDULE_TYPE_LABEL: Record<ScheduleDayType, string> = {
   RUN: "Run",
   BIKE: "Bike",
   REST: "Rest",
+  OTHER: "Other",
 };

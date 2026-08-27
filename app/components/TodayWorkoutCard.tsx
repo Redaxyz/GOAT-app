@@ -38,6 +38,8 @@ export default function TodayWorkoutCard({ data, dateStr, label = "Today" }: { d
           ? "Bike day"
           : info.isGenericGymDay
           ? "Gym day"
+          : info.entry.type === "OTHER"
+          ? info.entry.customLabel || "Other"
           : "Rest day"}
       </h2>
 
@@ -85,7 +87,7 @@ export default function TodayWorkoutCard({ data, dateStr, label = "Today" }: { d
         />
       )}
 
-      {!info.liftDay && !info.isRunDay && !info.isBikeDay && !info.isGenericGymDay && (
+      {!info.liftDay && !info.isRunDay && !info.isBikeDay && !info.isGenericGymDay && info.entry.type !== "OTHER" && (
         <p className="text-base font-bold opacity-60 mt-2">Rest day.</p>
       )}
     </div>

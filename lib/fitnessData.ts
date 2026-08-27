@@ -1,6 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { suggestNextRun, suggestNextBike, DEFAULT_WEIGHT_INCREMENT_LB } from "@/lib/overload";
-import { resolveLiftDays, resolveCycleTemplate, effectiveEntryForDate, type LiftDayDef, type ScheduleDayType, type ScheduleEntry } from "@/lib/schedule";
+import {
+  resolveLiftDays,
+  resolveCycleTemplate,
+  effectiveEntryForDate,
+  type LiftDayDef,
+  type ScheduleDayType,
+  type ScheduleEntry,
+  type ScheduleOverrideInfo,
+} from "@/lib/schedule";
 import { toDateInputValue } from "@/lib/date";
 
 /**
@@ -20,9 +28,9 @@ export async function getFitnessData(profileId: string) {
 
   const incrementByExercise = new Map(incrementRows.map((row) => [row.exerciseName, row.incrementLb]));
 
-  const scheduleOverrideByDate = new Map<string, ScheduleDayType>();
+  const scheduleOverrideByDate = new Map<string, ScheduleOverrideInfo>();
   for (const row of scheduleOverrideRows) {
-    scheduleOverrideByDate.set(toDateInputValue(row.date), row.dayType as ScheduleDayType);
+    scheduleOverrideByDate.set(toDateInputValue(row.date), { type: row.dayType as ScheduleDayType, customLabel: row.customLabel });
   }
 
   const latestByExercise = new Map<string, (typeof lifts)[number]>();
@@ -54,7 +62,7 @@ export type FitnessData = Awaited<ReturnType<typeof getFitnessData>>;
 
 export type DayEntryInfo = {
   entry: ScheduleEntry;
-  override: ScheduleDayType | null;
+  override: ScheduleOverrideInfo | null;
   liftDay: LiftDayDef | null;
   isRunDay: boolean;
   isBikeDay: boolean;

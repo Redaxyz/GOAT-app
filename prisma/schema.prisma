@@ -168,14 +168,17 @@ model ScheduleTemplate {
 // ---- Fitness: per-date schedule swaps -------------------------------------
 // The two-week gym/run/bike cycle (see lib/schedule.ts) has a fixed default,
 // but a specific date's type can be swapped on the fly (e.g. gym instead of
-// a scheduled run). dayType is "GYM" | "RUN" | "BIKE" | "REST".
+// a scheduled run). dayType is "GYM" | "RUN" | "BIKE" | "REST" | "OTHER".
+// customLabel is only set when dayType is "OTHER" (e.g. "Swim") — a
+// free-text day type available per-date only, not in the recurring template.
 
 model ScheduleOverride {
-  id        String   @id @default(cuid())
-  profileId String
-  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  date      DateTime
-  dayType   String
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date        DateTime
+  dayType     String
+  customLabel String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

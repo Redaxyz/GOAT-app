@@ -188,21 +188,23 @@ export async function submitCardio(formData: FormData) {
   revalidatePath("/fitness");
 }
 
-/** Swap a specific date's schedule type (gym/run/bike/rest) on the fly. */
+/** Swap a specific date's schedule type (gym/run/bike/rest/other) on the fly. customLabel only applies when dayType is "OTHER". */
 export async function setScheduleOverride(formData: FormData) {
   const profile = await getActiveProfile();
   if (!profile) throw new Error("No active profile");
 
   const date = dateOnly(requireString(formData, "date"));
   const dayType = requireString(formData, "dayType") as ScheduleDayType;
+  const customLabel = dayType === "OTHER" ? requireString(formData, "customLabel") : null;
 
   await prisma.scheduleOverride.upsert({
     where: { profileId_date: { profileId: profile.id, date } },
-    update: { dayType },
-    create: { profileId: profile.id, date, dayType },
+    update: { dayType, customLabel },
+    create: { profileId: profile.id, date, dayType, customLabel },
   });
 
   revalidatePath("/fitness");
+  revalidatePath("/");
 }
 
 /** Revert a date back to its default two-week-cycle schedule. */
@@ -215,6 +217,7 @@ export async function clearScheduleOverride(formData: FormData) {
   await prisma.scheduleOverride.deleteMany({ where: { profileId: profile.id, date } });
 
   revalidatePath("/fitness");
+  revalidatePath("/");
 }
 
 /** Rearranges the two-week gym/run/bike cycle slot by slot. */

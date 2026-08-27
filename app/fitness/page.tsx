@@ -42,7 +42,14 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
     const date = addDays(firstOfMonthStr, i);
     const override = data.scheduleOverrideByDate.get(date) ?? null;
     const entry = effectiveEntryForDate(date, override, data.liftDays, data.cycleTemplate);
-    return { date, day: i + 1, type: entry.type, isToday: date === todayStr, isOverridden: override != null };
+    return {
+      date,
+      day: i + 1,
+      type: entry.type,
+      customLabel: entry.customLabel ?? null,
+      isToday: date === todayStr,
+      isOverridden: override != null,
+    };
   });
   const monthLabel = calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
 
@@ -61,7 +68,7 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
           </Link>
         </div>
 
-        <MonthCalendar monthLabel={monthLabel} cells={calendarCells} leadingBlanks={leadingBlanks} />
+        <MonthCalendar monthLabel={monthLabel} cells={calendarCells} leadingBlanks={leadingBlanks} todayStr={todayStr} />
 
         <TodayWorkoutCard data={data} dateStr={todayStr} />
 
@@ -284,11 +291,14 @@ function EditView({ liftDays, cycleTemplate }: { liftDays: LiftDayDef[]; cycleTe
                 defaultValue={type}
                 className="text-right text-base font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
               >
-                {(Object.keys(SCHEDULE_TYPE_LABEL) as ScheduleDayType[]).map((t) => (
-                  <option key={t} value={t}>
-                    {SCHEDULE_TYPE_LABEL[t]}
-                  </option>
-                ))}
+                {/* "Other" is per-date only (see the calendar above) — not valid for the recurring template. */}
+                {(Object.keys(SCHEDULE_TYPE_LABEL) as ScheduleDayType[])
+                  .filter((t) => t !== "OTHER")
+                  .map((t) => (
+                    <option key={t} value={t}>
+                      {SCHEDULE_TYPE_LABEL[t]}
+                    </option>
+                  ))}
               </select>
             </Row>
           ))}
