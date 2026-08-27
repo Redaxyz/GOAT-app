@@ -3,9 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { submitCheckIn } from "@/app/actions";
 import { today, addDays, isSunday, dateOnly, formatDateLabel } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
+import { getFitnessData } from "@/lib/fitnessData";
 import Link from "next/link";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/app/components/icons";
-import Row from "@/app/components/Row";
+import { DisplayRow, NumberRow, YesNoRow, NotesRow, NotesDisplayRow } from "@/app/components/CheckInFields";
+import YesterdayCard from "@/app/components/YesterdayCard";
+import TodayWorkoutCard from "@/app/components/TodayWorkoutCard";
 import SubmitButton from "@/app/components/SubmitButton";
 
 export default async function HomePage({
@@ -19,17 +22,8 @@ export default async function HomePage({
   const { date: dateParam, edit } = await searchParams;
   const selectedDate = dateParam || today();
   const isToday = selectedDate === today();
-  const editMode = isToday || edit === "1";
-  const sunday = isSunday(selectedDate);
   const prevDate = addDays(selectedDate, -1);
   const nextDate = addDays(selectedDate, 1);
-
-  const dateFilter = { profileId_date: { profileId: profile.id, date: dateOnly(selectedDate) } };
-
-  const [existing, weightLog] = await Promise.all([
-    prisma.dailyCheckIn.findUnique({ where: dateFilter }),
-    sunday ? prisma.weightLog.findUnique({ where: dateFilter }) : Promise.resolve(null),
-  ]);
 
   return (
     <div className="space-y-8">
@@ -60,22 +54,58 @@ export default async function HomePage({
         )}
       </div>
 
-      {!isToday && (
-        <div className="flex justify-center">
-          {editMode ? (
-            <Link href={`/?date=${selectedDate}`} className="text-sm font-bold underline underline-offset-4">
-              Done editing
-            </Link>
-          ) : (
-            <Link
-              href={`/?date=${selectedDate}&edit=1`}
-              className="px-5 py-1.5 rounded-full bg-theme-accent text-theme-own text-sm font-bold shadow-sm hover:opacity-90 active:scale-95 transition"
-            >
-              Edit
-            </Link>
-          )}
-        </div>
+      {isToday ? (
+        <TodaySections profileId={profile.id} />
+      ) : (
+        <PastDaySections profileId={profile.id} selectedDate={selectedDate} edit={edit === "1"} />
       )}
+    </div>
+  );
+}
+
+/** The default view: a quick recap of yesterday, then today's workout, both actionable right from Home. */
+async function TodaySections({ profileId }: { profileId: string }) {
+  const yesterday = addDays(today(), -1);
+  const [yesterdayCheckIn, fitnessData] = await Promise.all([
+    prisma.dailyCheckIn.findUnique({ where: { profileId_date: { profileId, date: dateOnly(yesterday) } } }),
+    getFitnessData(profileId),
+  ]);
+
+  return (
+    <>
+      <YesterdayCard dateStr={yesterday} existing={yesterdayCheckIn} />
+      <TodayWorkoutCard data={fitnessData} dateStr={today()} />
+    </>
+  );
+}
+
+/** Browsing a past date via the arrows still uses the original read/edit check-in view. */
+async function PastDaySections({ profileId, selectedDate, edit }: { profileId: string; selectedDate: string; edit: boolean }) {
+  const editMode = edit;
+  const sunday = isSunday(selectedDate);
+  const dateFilter = { profileId_date: { profileId, date: dateOnly(selectedDate) } };
+
+  const [existing, weightLog] = await Promise.all([
+    prisma.dailyCheckIn.findUnique({ where: dateFilter }),
+    sunday ? prisma.weightLog.findUnique({ where: dateFilter }) : Promise.resolve(null),
+  ]);
+
+  return (
+    <>
+      <div className="flex justify-center">
+        {editMode ? (
+          <Link href={`/?date=${selectedDate}`} className="text-sm font-bold underline underline-offset-4">
+            Done editing
+          </Link>
+        ) : (
+          <Link
+            href={`/?date=${selectedDate}&edit=1`}
+            className="px-5 py-1.5 rounded-full bg-theme-accent text-theme-own text-sm font-bold shadow-sm hover:opacity-90 active:scale-95 transition"
+          >
+            Edit
+          </Link>
+        )}
+      </div>
 
       <section>
         {editMode ? (
@@ -108,87 +138,6 @@ export default async function HomePage({
           </div>
         )}
       </section>
-    </div>
-  );
-}
-
-function DisplayRow({ label, value }: { label: string; value: string | number }) {
-  return (
-    <Row>
-      <span className="text-lg font-bold opacity-70">{label}</span>
-      <span className="text-lg font-extrabold">{value}</span>
-    </Row>
-  );
-}
-
-function NumberRow({
-  name,
-  label,
-  defaultValue,
-  step,
-}: {
-  name: string;
-  label: string;
-  defaultValue?: number | string | null;
-  step?: string;
-}) {
-  return (
-    <Row>
-      <label htmlFor={name} className="text-lg font-bold opacity-70">
-        {label}
-      </label>
-      <input
-        id={name}
-        type="number"
-        name={name}
-        step={step}
-        defaultValue={defaultValue ?? ""}
-        className="w-28 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-      />
-    </Row>
-  );
-}
-
-function YesNoRow({ name, label, value }: { name: string; label: string; value?: boolean | null }) {
-  return (
-    <Row>
-      <span className="text-lg font-bold opacity-70">{label}</span>
-      <div className="flex gap-2">
-        <label className="px-4 py-1.5 rounded-full border-2 border-theme-accent/40 text-sm font-bold cursor-pointer has-[:checked]:bg-theme-accent has-[:checked]:text-theme-own has-[:checked]:border-theme-accent transition">
-          <input type="radio" name={name} value="yes" defaultChecked={value === true} className="sr-only" />
-          Yes
-        </label>
-        <label className="px-4 py-1.5 rounded-full border-2 border-theme-accent/40 text-sm font-bold cursor-pointer has-[:checked]:bg-theme-accent has-[:checked]:text-theme-own has-[:checked]:border-theme-accent transition">
-          <input type="radio" name={name} value="no" defaultChecked={value !== true} className="sr-only" />
-          No
-        </label>
-      </div>
-    </Row>
-  );
-}
-
-function NotesRow({ defaultValue }: { defaultValue?: string | null }) {
-  return (
-    <div className="py-3.5 border-b-2 border-theme-accent/15">
-      <label htmlFor="notes" className="block text-lg font-bold opacity-70 mb-2">
-        Notes
-      </label>
-      <textarea
-        id="notes"
-        name="notes"
-        rows={3}
-        defaultValue={defaultValue ?? ""}
-        className="w-full text-base font-semibold bg-transparent border-2 border-theme-accent/20 rounded-2xl px-3 py-2 focus:border-theme-accent outline-none"
-      />
-    </div>
-  );
-}
-
-function NotesDisplayRow({ value }: { value: string }) {
-  return (
-    <div className="py-3.5 border-b-2 border-theme-accent/15">
-      <div className="text-lg font-bold opacity-70 mb-1">Notes</div>
-      <div className="text-lg font-extrabold whitespace-pre-wrap">{value}</div>
-    </div>
+    </>
   );
 }

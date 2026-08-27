@@ -1,20 +1,9 @@
 import Link from "next/link";
 import { requireActiveProfile } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
+import { submitLift, submitCardio, updateWorkoutDayPlans, addWorkoutDay, updateScheduleTemplate } from "@/app/actions";
+import { MAX_LIFT_SETS } from "@/lib/overload";
+import { getFitnessData, resolveDayEntry } from "@/lib/fitnessData";
 import {
-  submitLift,
-  submitCardio,
-  updateWorkoutDayPlans,
-  addWorkoutDay,
-  setScheduleOverride,
-  clearScheduleOverride,
-  updateScheduleTemplate,
-} from "@/app/actions";
-import { suggestNextLift, suggestNextRun, suggestNextBike, summarizeLiftSession, DEFAULT_WEIGHT_INCREMENT_LB, MAX_LIFT_SETS } from "@/lib/overload";
-import type { LiftSetEntry } from "@/lib/types";
-import {
-  resolveLiftDays,
-  resolveCycleTemplate,
   effectiveEntryForDate,
   cycleSlotLabel,
   SCHEDULE_TYPE_LABEL,
@@ -22,78 +11,26 @@ import {
   type ScheduleDayType,
 } from "@/lib/schedule";
 import { today, formatDateLabel, toDateInputValue, dateOnly, addDays } from "@/lib/date";
-import { kgToLb } from "@/lib/units";
 import { PencilIcon } from "@/app/components/icons";
 import Row from "@/app/components/Row";
 import SubmitButton from "@/app/components/SubmitButton";
 import MonthCalendar, { type CalendarCell } from "@/app/components/MonthCalendar";
-
-function liftSets(lift: { sets: unknown }): LiftSetEntry[] {
-  return lift.sets as LiftSetEntry[];
-}
-
-function formatSetsLb(sets: LiftSetEntry[]): string {
-  return sets.map((s) => `${kgToLb(s.weightKg)}lb×${s.reps}`).join(", ");
-}
+import TodayWorkoutCard, { LiftRow, CardioRow, liftSets, formatSetsLb } from "@/app/components/TodayWorkoutCard";
 
 export default async function FitnessPage({ searchParams }: { searchParams: Promise<{ edit?: string }> }) {
   const profile = await requireActiveProfile();
   const { edit } = await searchParams;
 
-  const [lifts, cardio, dayPlanRows, incrementRows, scheduleOverrideRows, scheduleTemplateRows] = await Promise.all([
-    prisma.liftLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
-    prisma.cardioLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
-    prisma.workoutDayPlan.findMany({ where: { profileId: profile.id } }),
-    prisma.exerciseIncrement.findMany({ where: { profileId: profile.id } }),
-    prisma.scheduleOverride.findMany({ where: { profileId: profile.id } }),
-    prisma.scheduleTemplate.findMany({ where: { profileId: profile.id } }),
-  ]);
-
-  const incrementByExercise = new Map(incrementRows.map((row) => [row.exerciseName, row.incrementLb]));
-
-  const liftDays = resolveLiftDays(dayPlanRows);
-  const cycleTemplate = resolveCycleTemplate(scheduleTemplateRows);
+  const data = await getFitnessData(profile.id);
 
   if (edit === "1") {
-    return <EditView liftDays={liftDays} cycleTemplate={cycleTemplate} />;
+    return <EditView liftDays={data.liftDays} cycleTemplate={data.cycleTemplate} />;
   }
-
-  const scheduleOverrideByDate = new Map<string, ScheduleDayType>();
-  for (const row of scheduleOverrideRows) {
-    scheduleOverrideByDate.set(toDateInputValue(row.date), row.dayType as ScheduleDayType);
-  }
-
-  const latestByExercise = new Map<string, (typeof lifts)[number]>();
-  for (const lift of lifts) {
-    if (!latestByExercise.has(lift.exerciseName)) latestByExercise.set(lift.exerciseName, lift);
-  }
-
-  const latestRun = cardio.find((c) => c.type === "RUN") ?? null;
-  const bikeLogs = cardio.filter((c) => c.type === "BIKE");
-  const latestBike = bikeLogs[0] ?? null;
-  const runSuggestion = suggestNextRun(latestRun);
-  const bikeSuggestion = suggestNextBike(bikeLogs);
 
   const todayStr = today();
-  const allExercises = Array.from(new Set(liftDays.flatMap((d) => d.exercises)));
-
-  // Once today's session is already logged, the suggestion is for the *next*
-  // session, not today's — otherwise a just-logged run shows its own
-  // incremented follow-up target mislabeled as "today's target".
-  const ranToday = latestRun != null && toDateInputValue(latestRun.date) === todayStr;
-  const bikedToday = latestBike != null && toDateInputValue(latestBike.date) === todayStr;
-  const loggedToday = (name: string) => {
-    const log = latestByExercise.get(name);
-    return log != null && toDateInputValue(log.date) === todayStr;
-  };
-
-  const todayOverride = scheduleOverrideByDate.get(todayStr) ?? null;
-  const todayEntry = effectiveEntryForDate(todayStr, todayOverride, liftDays, cycleTemplate);
-  const todayLiftDay = todayEntry.dayKey ? liftDays.find((d) => d.dayKey === todayEntry.dayKey) ?? null : null;
-  const isRunDay = todayEntry.type === "RUN";
-  const isBikeDay = todayEntry.type === "BIKE";
-  const isGenericGymDay = todayEntry.type === "GYM" && !todayLiftDay;
-  const otherLiftDays = liftDays.filter((d) => d.dayKey !== todayEntry.dayKey);
+  const allExercises = Array.from(new Set(data.liftDays.flatMap((d) => d.exercises)));
+  const info = resolveDayEntry(data, todayStr);
+  const otherLiftDays = data.liftDays.filter((d) => d.dayKey !== info.entry.dayKey);
 
   const calendarMonth = dateOnly(todayStr);
   const year = calendarMonth.getUTCFullYear();
@@ -103,8 +40,8 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   const leadingBlanks = dateOnly(firstOfMonthStr).getUTCDay();
   const calendarCells: CalendarCell[] = Array.from({ length: daysInMonth }, (_, i) => {
     const date = addDays(firstOfMonthStr, i);
-    const override = scheduleOverrideByDate.get(date) ?? null;
-    const entry = effectiveEntryForDate(date, override, liftDays, cycleTemplate);
+    const override = data.scheduleOverrideByDate.get(date) ?? null;
+    const entry = effectiveEntryForDate(date, override, data.liftDays, data.cycleTemplate);
     return { date, day: i + 1, type: entry.type, isToday: date === todayStr, isOverridden: override != null };
   });
   const monthLabel = calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
@@ -126,62 +63,7 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
 
         <MonthCalendar monthLabel={monthLabel} cells={calendarCells} leadingBlanks={leadingBlanks} />
 
-        <div className="border-2 border-theme-accent rounded-3xl p-5 mb-8 bg-theme-accent/5">
-          <div className="text-xs font-bold uppercase tracking-wide text-theme-accent mb-1">
-            Today — {formatDateLabel(dateOnly(todayStr))}
-          </div>
-          <h2 className="text-xl font-extrabold mb-1">
-            {todayLiftDay ? todayLiftDay.label : isRunDay ? "Run day" : isBikeDay ? "Bike day" : isGenericGymDay ? "Gym day" : "Rest day"}
-          </h2>
-
-          <SwapDayControls todayStr={todayStr} activeType={todayEntry.type} isOverridden={todayOverride != null} />
-
-          {todayLiftDay &&
-            todayLiftDay.exercises.map((name) => (
-              <LiftRow
-                key={name}
-                name={name}
-                lastLog={latestByExercise.get(name) ?? null}
-                isToday
-                doneToday={loggedToday(name)}
-                incrementLb={incrementByExercise.get(name) ?? DEFAULT_WEIGHT_INCREMENT_LB}
-                logForm
-                todayStr={todayStr}
-              />
-            ))}
-
-          {isGenericGymDay && (
-            <p className="text-base font-bold opacity-60 mt-2">No preset exercise list for today — log any lift below.</p>
-          )}
-
-          {isRunDay && (
-            <CardioRow
-              label="Run"
-              isToday
-              doneToday={ranToday}
-              lastLog={latestRun}
-              suggestion={runSuggestion}
-              logForm
-              todayStr={todayStr}
-              cardioType="RUN"
-            />
-          )}
-
-          {isBikeDay && (
-            <CardioRow
-              label="Bike"
-              isToday
-              doneToday={bikedToday}
-              lastLog={latestBike}
-              suggestion={bikeSuggestion}
-              logForm
-              todayStr={todayStr}
-              cardioType="BIKE"
-            />
-          )}
-
-          {!todayLiftDay && !isRunDay && !isBikeDay && !isGenericGymDay && <p className="text-base font-bold opacity-60 mt-2">Rest day.</p>}
-        </div>
+        <TodayWorkoutCard data={data} dateStr={todayStr} />
 
         <h2 className="text-lg font-extrabold mb-3">Suggested next targets</h2>
         {otherLiftDays.map((day) => (
@@ -191,17 +73,17 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
               <LiftRow
                 key={name}
                 name={name}
-                lastLog={latestByExercise.get(name) ?? null}
+                lastLog={data.latestByExercise.get(name) ?? null}
                 isToday={false}
                 doneToday={false}
-                incrementLb={incrementByExercise.get(name) ?? DEFAULT_WEIGHT_INCREMENT_LB}
+                incrementLb={info.incrementLb(name)}
               />
             ))}
           </div>
         ))}
 
-        {!isRunDay && <CardioRow label="Run" isToday={false} doneToday={false} lastLog={latestRun} suggestion={runSuggestion} />}
-        {!isBikeDay && <CardioRow label="Bike" isToday={false} doneToday={false} lastLog={latestBike} suggestion={bikeSuggestion} />}
+        {!info.isRunDay && <CardioRow label="Run" isToday={false} doneToday={false} lastLog={data.latestRun} suggestion={data.runSuggestion} />}
+        {!info.isBikeDay && <CardioRow label="Bike" isToday={false} doneToday={false} lastLog={data.latestBike} suggestion={data.bikeSuggestion} />}
       </section>
 
       <section className="grid sm:grid-cols-2 gap-x-10 gap-y-10">
@@ -222,7 +104,7 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
                 <option value="" disabled>
                   Select exercise
                 </option>
-                {liftDays.map((day) => (
+                {data.liftDays.map((day) => (
                   <optgroup key={day.dayKey} label={day.label}>
                     {day.exercises.map((ex) => (
                       <option key={ex} value={ex}>
@@ -340,13 +222,13 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
 
       <section>
         <h2 className="text-lg font-extrabold mb-3">Every logged lift</h2>
-        {lifts.length === 0 && <p className="text-lg font-bold opacity-70">No lifts logged yet.</p>}
+        {data.lifts.length === 0 && <p className="text-lg font-bold opacity-70">No lifts logged yet.</p>}
         {allExercises
-          .filter((name) => latestByExercise.has(name))
+          .filter((name) => data.latestByExercise.has(name))
           .map((name) => (
             <div key={name} className="py-3.5 border-b-2 border-theme-accent/15">
               <div className="text-lg font-extrabold mb-1">{name}</div>
-              {lifts
+              {data.lifts
                 .filter((l) => l.exerciseName === name)
                 .map((l) => (
                   <div key={l.id} className="flex items-center justify-between gap-4 text-sm font-bold opacity-70">
@@ -360,8 +242,8 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
 
       <section>
         <h2 className="text-lg font-extrabold mb-3">Every logged run / bike</h2>
-        {cardio.length === 0 && <p className="text-lg font-bold opacity-70">No runs or rides logged yet.</p>}
-        {cardio.map((c) => (
+        {data.cardio.length === 0 && <p className="text-lg font-bold opacity-70">No runs or rides logged yet.</p>}
+        {data.cardio.map((c) => (
           <div key={c.id} className="flex items-center justify-between gap-4 py-3.5 border-b-2 border-theme-accent/15 text-lg font-bold">
             <span>{c.type === "RUN" ? "Run" : "Bike"}</span>
             <span className="font-extrabold opacity-80">
@@ -453,207 +335,5 @@ function EditView({ liftDays, cycleTemplate }: { liftDays: LiftDayDef[]; cycleTe
         </form>
       </div>
     </div>
-  );
-}
-
-const SWAP_TYPES: ScheduleDayType[] = ["GYM", "RUN", "BIKE", "REST"];
-
-/** Lets today's schedule type be swapped on the fly — tap a different type to override, tap "Reset" to go back to the two-week default. */
-function SwapDayControls({ todayStr, activeType, isOverridden }: { todayStr: string; activeType: ScheduleDayType; isOverridden: boolean }) {
-  return (
-    <div className="flex items-center gap-2 flex-wrap mb-4 mt-1">
-      {SWAP_TYPES.map((t) => (
-        <form key={t} action={setScheduleOverride}>
-          <input type="hidden" name="date" value={todayStr} />
-          <input type="hidden" name="dayType" value={t} />
-          <button
-            type="submit"
-            disabled={t === activeType}
-            className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition active:scale-95 ${
-              t === activeType ? "bg-theme-accent text-theme-own" : "bg-theme-accent/10 hover:bg-theme-accent/20"
-            }`}
-          >
-            {SCHEDULE_TYPE_LABEL[t]}
-          </button>
-        </form>
-      ))}
-      {isOverridden && (
-        <form action={clearScheduleOverride}>
-          <input type="hidden" name="date" value={todayStr} />
-          <button type="submit" className="px-3 py-1.5 rounded-full text-xs font-bold opacity-50 hover:opacity-80 transition underline">
-            Reset
-          </button>
-        </form>
-      )}
-    </div>
-  );
-}
-
-function LiftRow({
-  name,
-  lastLog,
-  isToday,
-  doneToday,
-  incrementLb,
-  logForm = false,
-  todayStr,
-}: {
-  name: string;
-  lastLog: { sets: unknown } | null;
-  isToday: boolean;
-  doneToday: boolean;
-  incrementLb: number;
-  logForm?: boolean;
-  todayStr?: string;
-}) {
-  const lastSets = lastLog ? liftSets(lastLog) : null;
-  const suggestion = lastSets
-    ? suggestNextLift(
-        summarizeLiftSession(lastSets.map((s) => ({ weightLb: kgToLb(s.weightKg), reps: s.reps }))),
-        incrementLb
-      )
-    : null;
-  // Once today's set is already logged, the suggestion is for the *next*
-  // session — showing it as "today's target" would misleadingly imply
-  // today's set still needs to happen.
-  const targetLabel = isToday && !doneToday ? "Today's target" : "Next target";
-  return (
-    <div className="py-3.5 border-b-2 border-theme-accent/15">
-      <div className="text-lg font-extrabold mb-1">{name}</div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <div className="text-xs font-bold opacity-50 uppercase tracking-wide">Last</div>
-          {lastSets ? (
-            <div className="font-bold opacity-70">{formatSetsLb(lastSets)}</div>
-          ) : (
-            <div className="font-bold opacity-50">Not logged yet</div>
-          )}
-        </div>
-        <div>
-          <div className="text-xs font-bold opacity-50 uppercase tracking-wide">{targetLabel}</div>
-          {suggestion ? (
-            <div className="font-bold opacity-70">
-              {suggestion.weightLb}lb × {suggestion.reps} × {suggestion.sets}
-            </div>
-          ) : (
-            <div className="font-bold opacity-50">Log a set first</div>
-          )}
-        </div>
-      </div>
-
-      {logForm && todayStr && (
-        <form action={submitLift} className="mt-3">
-          <input type="hidden" name="date" value={todayStr} />
-          <input type="hidden" name="exerciseName" value={name} />
-          <div className="flex flex-col gap-2">
-            {Array.from({ length: MAX_LIFT_SETS }, (_, i) => i + 1).map((setNum) => (
-              <div key={setNum} className="flex items-end gap-2 flex-wrap">
-                <span className="text-[10px] font-bold opacity-40 uppercase tracking-wide w-10">Set {setNum}</span>
-                <InlineNumberField
-                  label="lb"
-                  name={`setWeightLb${setNum}`}
-                  step="0.5"
-                  required={setNum === 1}
-                  defaultValue={suggestion && setNum <= suggestion.sets ? suggestion.weightLb : undefined}
-                />
-                <InlineNumberField
-                  label="reps"
-                  name={`setReps${setNum}`}
-                  required={setNum === 1}
-                  defaultValue={suggestion && setNum <= suggestion.sets ? suggestion.reps : undefined}
-                />
-              </div>
-            ))}
-          </div>
-          <SubmitButton className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition mt-2">
-            Log
-          </SubmitButton>
-        </form>
-      )}
-    </div>
-  );
-}
-
-function CardioRow({
-  label,
-  isToday,
-  doneToday,
-  lastLog,
-  suggestion,
-  logForm = false,
-  todayStr,
-  cardioType,
-}: {
-  label: string;
-  isToday: boolean;
-  doneToday: boolean;
-  lastLog: { distanceKm: number } | null;
-  suggestion: { distanceKm: number; rationale: string };
-  logForm?: boolean;
-  todayStr?: string;
-  cardioType?: "RUN" | "BIKE";
-}) {
-  // Once today's scheduled session is already logged, the suggestion is for
-  // the *next* session — showing it as "today's target" would misleadingly
-  // imply today's run/ride still needs to happen.
-  const targetLabel = isToday && !doneToday ? "Today's target" : "Next target";
-  return (
-    <div className="py-3.5 border-b-2 border-theme-accent/15">
-      <div className="text-lg font-extrabold mb-1">
-        {label}
-        {isToday && <span className="ml-2 text-xs font-bold opacity-60 normal-case">• {doneToday ? "Done today" : "Today"}</span>}
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <div className="text-xs font-bold opacity-50 uppercase tracking-wide">Last</div>
-          <div className="font-bold opacity-70">{lastLog ? `${lastLog.distanceKm}km` : "Not logged yet"}</div>
-        </div>
-        <div>
-          <div className="text-xs font-bold opacity-50 uppercase tracking-wide">{targetLabel}</div>
-          <div className="font-bold opacity-70">{suggestion.distanceKm}km</div>
-        </div>
-      </div>
-      <div className="text-sm font-semibold opacity-50 mt-1">{suggestion.rationale}</div>
-
-      {logForm && todayStr && cardioType && (
-        <form action={submitCardio} className="flex items-end gap-2 flex-wrap mt-3">
-          <input type="hidden" name="date" value={todayStr} />
-          <input type="hidden" name="type" value={cardioType} />
-          <InlineNumberField label="km" name="distanceKm" step="0.1" defaultValue={suggestion.distanceKm} />
-          <InlineNumberField label="min" name="durationMin" step="1" required={false} />
-          <SubmitButton className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
-            Log
-          </SubmitButton>
-        </form>
-      )}
-    </div>
-  );
-}
-
-function InlineNumberField({
-  label,
-  name,
-  defaultValue,
-  step,
-  required = true,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: number;
-  step?: string;
-  required?: boolean;
-}) {
-  return (
-    <label className="flex flex-col text-[10px] font-bold opacity-50 uppercase tracking-wide">
-      {label}
-      <input
-        type="number"
-        name={name}
-        step={step}
-        required={required}
-        defaultValue={defaultValue ?? ""}
-        className="w-16 text-center text-base font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1 mt-0.5"
-      />
-    </label>
   );
 }

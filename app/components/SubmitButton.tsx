@@ -8,6 +8,8 @@ type Props = Omit<ComponentPropsWithoutRef<"button">, "type" | "disabled"> & {
   savedLabel?: string;
   /** Set false for buttons whose children aren't plain text (e.g. icon + label) — dims/disables instead of swapping content. */
   swapLabel?: boolean;
+  /** Fires once, right when the action completes (pending -> not pending) — e.g. to collapse a parent card after the checkmark has had a moment to show. */
+  onSettled?: () => void;
 };
 
 export default function SubmitButton({
@@ -16,6 +18,7 @@ export default function SubmitButton({
   pendingLabel = "Saving…",
   savedLabel = "Saved ✓",
   swapLabel = true,
+  onSettled,
   ...rest
 }: Props) {
   const { pending } = useFormStatus();
@@ -25,11 +28,12 @@ export default function SubmitButton({
   useEffect(() => {
     if (wasPending.current && !pending) {
       setJustSaved(true);
+      onSettled?.();
       const timer = setTimeout(() => setJustSaved(false), 1800);
       return () => clearTimeout(timer);
     }
     wasPending.current = pending;
-  }, [pending]);
+  }, [pending, onSettled]);
 
   return (
     <button
