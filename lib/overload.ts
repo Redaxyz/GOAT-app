@@ -7,6 +7,11 @@
 // - Biking: +3.5km week to week, but only once per calendar week — the
 //   two-week schedule's bonus bike day can land in the same week as another
 //   ride (see lib/schedule.ts), so this cap can hold distance steady twice.
+// - Rowing and swimming are tracked in meters, not km (erg pieces and pool
+//   sets are conventionally counted that way) — suggestNextRow/suggestNextSwim
+//   still use the `distanceKm`-named field shared with run/bike (see
+//   CardioLog), it just holds a meters value for these two types by
+//   convention rather than a unit conversion.
 
 const REP_FLOOR = 8;
 const REP_CEILING = 12;
@@ -16,6 +21,10 @@ const RUN_INCREMENT_KM = 0.5;
 const RUN_BASELINE_KM = 5;
 const BIKE_INCREMENT_KM = 3.5;
 const BIKE_BASELINE_KM = 25;
+const ROW_INCREMENT_M = 250; // erg pieces conventionally step in 250m jumps
+const ROW_BASELINE_M = 2000; // a common "2k" erg test piece
+const SWIM_INCREMENT_M = 100;
+const SWIM_BASELINE_M = 1000; // a common pool-workout distance
 
 export type LiftSuggestion = {
   weightLb: number;
@@ -93,6 +102,28 @@ export function suggestNextBike(
   return {
     distanceKm: Math.round((latest.distanceKm + BIKE_INCREMENT_KM) * 100) / 100,
     rationale: `New week — +${BIKE_INCREMENT_KM}km on last week's distance.`,
+  };
+}
+
+/** +250m each session. */
+export function suggestNextRow(last: { distanceKm: number } | null): { distanceKm: number; rationale: string } {
+  if (!last) {
+    return { distanceKm: ROW_BASELINE_M, rationale: `No rows logged yet — start with a baseline ${ROW_BASELINE_M}m row.` };
+  }
+  return {
+    distanceKm: Math.round(last.distanceKm + ROW_INCREMENT_M),
+    rationale: `+${ROW_INCREMENT_M}m on your last row distance.`,
+  };
+}
+
+/** +100m each session. */
+export function suggestNextSwim(last: { distanceKm: number } | null): { distanceKm: number; rationale: string } {
+  if (!last) {
+    return { distanceKm: SWIM_BASELINE_M, rationale: `No swims logged yet — start with a baseline ${SWIM_BASELINE_M}m swim.` };
+  }
+  return {
+    distanceKm: Math.round(last.distanceKm + SWIM_INCREMENT_M),
+    rationale: `+${SWIM_INCREMENT_M}m on your last swim distance.`,
   };
 }
 

@@ -1,10 +1,10 @@
 import { getActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { submitCheckIn } from "@/app/actions";
+import { submitCheckIn, markFoodLogComplete, clearFoodLogComplete } from "@/app/actions";
 import { today, addDays, isSunday, weekdayName, dateOnly, formatDateLabel } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
 import { getFitnessData } from "@/lib/fitnessData";
-import { getMealPlan, buildOverrideMap, type MealKey } from "@/lib/nutrition";
+import { getMealPlan, buildOverrideMap, buildFoodSwapMap, buildMealPlanSwapMap, applyFoodSwaps, sumMacros, type MealKey } from "@/lib/nutrition";
 import { foodLogKey } from "@/lib/foodLog";
 import Link from "next/link";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/app/components/icons";
@@ -71,23 +71,39 @@ async function TodaySections({ profileId }: { profileId: string }) {
   const todayStr = today();
   const yesterday = addDays(todayStr, -1);
 
-  const [yesterdayCheckIn, fitnessData, overrideRows, foodLogRows] = await Promise.all([
-    prisma.dailyCheckIn.findUnique({ where: { profileId_date: { profileId, date: dateOnly(yesterday) } } }),
-    getFitnessData(profileId),
-    prisma.mealPlanItemOverride.findMany({ where: { profileId } }),
-    prisma.foodLog.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
-  ]);
+  const todayWeekday = weekdayName(todayStr);
+
+  const [yesterdayCheckIn, fitnessData, overrideRows, foodLogRows, dateSwapRows, weekdaySwapRows, snackRows, customFoodItems, foodLogComplete] =
+    await Promise.all([
+      prisma.dailyCheckIn.findUnique({ where: { profileId_date: { profileId, date: dateOnly(yesterday) } } }),
+      getFitnessData(profileId),
+      prisma.mealPlanItemOverride.findMany({ where: { profileId } }),
+      prisma.foodLog.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
+      prisma.foodItemSwap.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
+      prisma.mealPlanItemSwap.findMany({ where: { profileId, day: todayWeekday } }),
+      prisma.snackLog.findMany({ where: { profileId, date: dateOnly(todayStr) }, orderBy: { createdAt: "asc" } }),
+      prisma.customFoodItem.findMany({ where: { profileId }, orderBy: { name: "asc" } }),
+      prisma.dailyFoodLogComplete.findUnique({ where: { profileId_date: { profileId, date: dateOnly(todayStr) } } }),
+    ]);
 
   const overrides = buildOverrideMap(overrideRows);
-  const todayPlan = getMealPlan(overrides).find((d) => d.day === weekdayName(todayStr));
+  const weekdaySwaps = buildMealPlanSwapMap(weekdaySwapRows);
+  const todayPlan = getMealPlan(overrides, weekdaySwaps).find((d) => d.day === todayWeekday);
 
   const initialFoodLog: Record<string, number> = {};
   for (const row of foodLogRows) initialFoodLog[foodLogKey(row.meal as MealKey, row.groceryId)] = row.amountG;
 
+  // Today's own swap layers on top of the standing weekday plan above — e.g.
+  // eating pasta just today despite Tuesday's standing carb being rice.
+  const dateSwaps = buildFoodSwapMap(todayWeekday, dateSwapRows);
+  const breakfast = todayPlan ? applyFoodSwaps(todayPlan.breakfast, todayWeekday, "breakfast", dateSwaps, overrides) : [];
+  const lunch = todayPlan ? applyFoodSwaps(todayPlan.lunch, todayWeekday, "lunch", dateSwaps, overrides) : [];
+  const dinner = todayPlan ? applyFoodSwaps(todayPlan.dinner, todayWeekday, "dinner", dateSwaps, overrides) : [];
+  const todayTotal = sumMacros([breakfast, lunch, dinner]);
+
   return (
     <>
       <YesterdayCard dateStr={yesterday} existing={yesterdayCheckIn} />
-      <TodayWorkoutCard data={fitnessData} dateStr={todayStr} />
 
       {todayPlan && (
         <section>
@@ -96,15 +112,34 @@ async function TodaySections({ profileId }: { profileId: string }) {
           <FoodLogSection
             dateStr={todayStr}
             mealGroups={[
-              { meal: "breakfast", label: "Breakfast", items: todayPlan.breakfast },
-              { meal: "lunch", label: "Lunch", items: todayPlan.lunch },
-              { meal: "dinner", label: "Dinner", items: todayPlan.dinner },
+              { meal: "breakfast", label: "Breakfast", items: breakfast },
+              { meal: "lunch", label: "Lunch", items: lunch },
+              { meal: "dinner", label: "Dinner", items: dinner },
             ]}
             initialFoodLog={initialFoodLog}
-            targetTotal={todayPlan.total}
+            targetTotal={todayTotal}
+            initialSnacks={snackRows}
+            customFoodItems={customFoodItems}
           />
+
+          <form action={foodLogComplete ? clearFoodLogComplete : markFoodLogComplete} className="mt-4">
+            <input type="hidden" name="date" value={todayStr} />
+            <SubmitButton
+              pendingLabel="Saving…"
+              savedLabel="Saved ✓"
+              className={`w-full px-6 py-3.5 rounded-full text-base font-extrabold shadow-sm active:scale-95 transition ${
+                foodLogComplete
+                  ? "border-2 border-theme-accent/30 text-theme-accent hover:bg-theme-accent/10"
+                  : "bg-theme-accent text-theme-own hover:opacity-90"
+              }`}
+            >
+              {foodLogComplete ? "✓ Today's food logged — tap to undo" : "Mark today's food as logged"}
+            </SubmitButton>
+          </form>
         </section>
       )}
+
+      <TodayWorkoutCard data={fitnessData} dateStr={todayStr} />
     </>
   );
 }

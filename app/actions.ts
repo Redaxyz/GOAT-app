@@ -7,7 +7,7 @@ import { getActiveProfile, setActiveProfileCookie, clearActiveProfileCookie, ens
 import { feetInchesToCm, lbToKg, kgToLb } from "@/lib/units";
 import { DEFAULT_LIFT_DAYS, DEFAULT_CYCLE_TYPE_TEMPLATE, parseExercisesText, type ScheduleDayType } from "@/lib/schedule";
 import { MAX_LIFT_SETS } from "@/lib/overload";
-import type { MealKey } from "@/lib/nutrition";
+import { ALL_FOOD_OPTIONS, macroGrams, type MealKey } from "@/lib/nutrition";
 import { dateOnly } from "@/lib/date";
 import type { ProfileSlug, CardioType, LiftSetEntry } from "@/lib/types";
 
@@ -255,7 +255,13 @@ export async function setMealPlanItemAmount(day: string, meal: MealKey, groceryI
     create: { profileId: profile.id, day, meal, groceryId, amountG },
   });
 
+  // The standing plan this overrides is also what Home's target total and
+  // Progress's weekly deficit read for that weekday — revalidate both so an
+  // edit made while today happens to be that weekday shows up immediately,
+  // not just next time the weekday comes around.
   revalidatePath("/grocery");
+  revalidatePath("/");
+  revalidatePath("/progress");
 }
 
 /**
@@ -278,6 +284,183 @@ export async function logFoodItem(date: string, meal: MealKey, groceryId: string
 
   revalidatePath("/");
   revalidatePath("/progress");
+}
+
+/** Swaps one meal-slot's item for an alternative on one specific date (e.g. lunch's meat, chicken thigh -> salmon) — the amount carries over, so its P/C/F and the day's total recompute from that. */
+export async function setFoodItemSwap(date: string, meal: MealKey, slot: string, groceryId: string) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  await prisma.foodItemSwap.upsert({
+    where: { profileId_date_meal_slot: { profileId: profile.id, date: dateOnly(date), meal, slot } },
+    update: { groceryId },
+    create: { profileId: profile.id, date: dateOnly(date), meal, slot, groceryId },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+/** Swaps one meal-slot's item for an alternative on the STANDING plan for a weekday going forward — the weekday counterpart to setFoodItemSwap below, so it feeds the grocery list and becomes that weekday's default everywhere. */
+export async function setMealPlanItemSwap(day: string, meal: MealKey, slot: string, groceryId: string) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  await prisma.mealPlanItemSwap.upsert({
+    where: { profileId_day_meal_slot: { profileId: profile.id, day, meal, slot } },
+    update: { groceryId },
+    create: { profileId: profile.id, day, meal, slot, groceryId },
+  });
+
+  revalidatePath("/grocery");
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+/** Adds a user-defined food to the Grocery page's personal food list — P/F/C given for one reference weight, raw or cooked. */
+export async function addCustomFoodItem(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const name = requireString(formData, "name");
+  const amountG = Number(requireString(formData, "amountG"));
+  const proteinG = Number(requireString(formData, "proteinG"));
+  const carbG = Number(requireString(formData, "carbG"));
+  const fatG = Number(requireString(formData, "fatG"));
+  const state = requireString(formData, "state");
+
+  if (![amountG, proteinG, carbG, fatG].every((n) => Number.isFinite(n) && n >= 0)) {
+    throw new Error("Weight and macros must be non-negative numbers");
+  }
+  if (state !== "raw" && state !== "cooked") throw new Error("State must be raw or cooked");
+
+  await prisma.customFoodItem.create({
+    data: { profileId: profile.id, name, amountG, proteinG, carbG, fatG, state },
+  });
+
+  revalidatePath("/grocery");
+}
+
+async function requireOwnedCustomFoodItem(id: string, profileId: string) {
+  const existing = await prisma.customFoodItem.findUnique({ where: { id } });
+  if (!existing || existing.profileId !== profileId) throw new Error("Food item not found");
+  return existing;
+}
+
+export async function deleteCustomFoodItem(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const id = requireString(formData, "id");
+  await requireOwnedCustomFoodItem(id, profile.id);
+
+  await prisma.customFoodItem.delete({ where: { id } });
+  revalidatePath("/grocery");
+}
+
+/**
+ * Logs one ad-hoc snack for a specific date — distinct from logFoodItem
+ * above, which only logs amounts against the fixed plan's existing slots.
+ * `source` picks how the macros are resolved: "catalog" looks up a plan food
+ * by groceryId and computes P/C/F from its per100g rate; "custom" scales a
+ * saved CustomFoodItem's macros from its reference weight to the amount
+ * given here; "other" takes the macros as typed, with no weight/rate at all.
+ */
+export async function addSnack(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const date = dateOnly(requireString(formData, "date"));
+  const source = requireString(formData, "source");
+
+  let label: string;
+  let amountG: number | null = null;
+  let proteinG: number;
+  let carbG: number;
+  let fatG: number;
+
+  if (source === "catalog") {
+    const groceryId = requireString(formData, "groceryId");
+    const option = ALL_FOOD_OPTIONS.find((o) => o.groceryId === groceryId);
+    if (!option) throw new Error("Unknown food");
+    amountG = Number(requireString(formData, "amountG"));
+    if (!Number.isFinite(amountG) || amountG < 0) throw new Error("Amount must be a non-negative number");
+    label = option.item;
+    ({ proteinG, carbG, fatG } = macroGrams(amountG, option.per100g));
+  } else if (source === "custom") {
+    const customFoodItemId = requireString(formData, "customFoodItemId");
+    const food = await prisma.customFoodItem.findUnique({ where: { id: customFoodItemId } });
+    if (!food || food.profileId !== profile.id) throw new Error("Food item not found");
+    amountG = Number(requireString(formData, "amountG"));
+    if (!Number.isFinite(amountG) || amountG < 0) throw new Error("Amount must be a non-negative number");
+    const scale = food.amountG > 0 ? amountG / food.amountG : 0;
+    label = food.name;
+    proteinG = Math.round(food.proteinG * scale);
+    carbG = Math.round(food.carbG * scale);
+    fatG = Math.round(food.fatG * scale);
+  } else if (source === "other") {
+    label = requireString(formData, "label");
+    proteinG = Number(requireString(formData, "proteinG"));
+    carbG = Number(requireString(formData, "carbG"));
+    fatG = Number(requireString(formData, "fatG"));
+    if (![proteinG, carbG, fatG].every((n) => Number.isFinite(n) && n >= 0)) {
+      throw new Error("Macros must be non-negative numbers");
+    }
+  } else {
+    throw new Error("Unknown snack source");
+  }
+
+  await prisma.snackLog.create({
+    data: { profileId: profile.id, date, label, amountG, proteinG, carbG, fatG },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+async function requireOwnedSnackLog(id: string, profileId: string) {
+  const existing = await prisma.snackLog.findUnique({ where: { id } });
+  if (!existing || existing.profileId !== profileId) throw new Error("Snack not found");
+  return existing;
+}
+
+export async function deleteSnack(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const id = requireString(formData, "id");
+  await requireOwnedSnackLog(id, profile.id);
+
+  await prisma.snackLog.delete({ where: { id } });
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+/** Marks (or un-marks) a date's food logging as done — a simple presence flag shown as a checkmark on Home, deliberately independent of DailyCheckIn (see schema comment). */
+export async function markFoodLogComplete(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const date = dateOnly(requireString(formData, "date"));
+
+  await prisma.dailyFoodLogComplete.upsert({
+    where: { profileId_date: { profileId: profile.id, date } },
+    update: {},
+    create: { profileId: profile.id, date },
+  });
+
+  revalidatePath("/");
+}
+
+export async function clearFoodLogComplete(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const date = dateOnly(requireString(formData, "date"));
+
+  await prisma.dailyFoodLogComplete.deleteMany({ where: { profileId: profile.id, date } });
+
+  revalidatePath("/");
 }
 
 export async function updateProfileSettings(formData: FormData) {

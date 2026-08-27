@@ -36,6 +36,10 @@ export default function TodayWorkoutCard({ data, dateStr, label = "Today" }: { d
           ? "Run day"
           : info.isBikeDay
           ? "Bike day"
+          : info.isRowDay
+          ? "Row day"
+          : info.isSwimDay
+          ? "Swim day"
           : info.isGenericGymDay
           ? "Gym day"
           : info.entry.type === "OTHER"
@@ -87,14 +91,44 @@ export default function TodayWorkoutCard({ data, dateStr, label = "Today" }: { d
         />
       )}
 
-      {!info.liftDay && !info.isRunDay && !info.isBikeDay && !info.isGenericGymDay && info.entry.type !== "OTHER" && (
-        <p className="text-base font-bold opacity-60 mt-2">Rest day.</p>
+      {info.isRowDay && (
+        <CardioRow
+          label="Row"
+          isToday
+          doneToday={info.rowedToday}
+          lastLog={data.latestRow}
+          suggestion={data.rowSuggestion}
+          logForm
+          dateStr={dateStr}
+          cardioType="ROW"
+        />
       )}
+
+      {info.isSwimDay && (
+        <CardioRow
+          label="Swim"
+          isToday
+          doneToday={info.swamToday}
+          lastLog={data.latestSwim}
+          suggestion={data.swimSuggestion}
+          logForm
+          dateStr={dateStr}
+          cardioType="SWIM"
+        />
+      )}
+
+      {!info.liftDay &&
+        !info.isRunDay &&
+        !info.isBikeDay &&
+        !info.isRowDay &&
+        !info.isSwimDay &&
+        !info.isGenericGymDay &&
+        info.entry.type !== "OTHER" && <p className="text-base font-bold opacity-60 mt-2">Rest day.</p>}
     </div>
   );
 }
 
-const SWAP_TYPES: ScheduleDayType[] = ["GYM", "RUN", "BIKE", "REST"];
+const SWAP_TYPES: ScheduleDayType[] = ["GYM", "RUN", "BIKE", "ROW", "SWIM", "REST"];
 
 /** Lets a date's schedule type be swapped on the fly — tap a different type to override, tap "Reset" to go back to the two-week default. */
 export function SwapDayControls({ dateStr, activeType, isOverridden }: { dateStr: string; activeType: ScheduleDayType; isOverridden: boolean }) {
@@ -229,12 +263,14 @@ export function CardioRow({
   suggestion: { distanceKm: number; rationale: string };
   logForm?: boolean;
   dateStr?: string;
-  cardioType?: "RUN" | "BIKE";
+  cardioType?: "RUN" | "BIKE" | "ROW" | "SWIM";
 }) {
   // Once today's scheduled session is already logged, the suggestion is for
   // the *next* session — showing it as "today's target" would misleadingly
   // imply today's run/ride still needs to happen.
   const targetLabel = isToday && !doneToday ? "Today's target" : "Next target";
+  // Row/swim are tracked in meters, not km (see lib/overload.ts).
+  const unit = cardioType === "ROW" || cardioType === "SWIM" ? "m" : "km";
   return (
     <div className="py-3.5 border-b-2 border-theme-accent/15">
       <div className="text-lg font-extrabold mb-1">
@@ -244,11 +280,11 @@ export function CardioRow({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <div className="text-xs font-bold opacity-50 uppercase tracking-wide">Last</div>
-          <div className="font-bold opacity-70">{lastLog ? `${lastLog.distanceKm}km` : "Not logged yet"}</div>
+          <div className="font-bold opacity-70">{lastLog ? `${lastLog.distanceKm}${unit}` : "Not logged yet"}</div>
         </div>
         <div>
           <div className="text-xs font-bold opacity-50 uppercase tracking-wide">{targetLabel}</div>
-          <div className="font-bold opacity-70">{suggestion.distanceKm}km</div>
+          <div className="font-bold opacity-70">{suggestion.distanceKm}{unit}</div>
         </div>
       </div>
       <div className="text-sm font-semibold opacity-50 mt-1">{suggestion.rationale}</div>
@@ -257,7 +293,7 @@ export function CardioRow({
         <form action={submitCardio} className="flex items-end gap-2 flex-wrap mt-3">
           <input type="hidden" name="date" value={dateStr} />
           <input type="hidden" name="type" value={cardioType} />
-          <InlineNumberField label="km" name="distanceKm" step="0.1" defaultValue={suggestion.distanceKm} />
+          <InlineNumberField label={unit} name="distanceKm" step={unit === "m" ? "1" : "0.1"} defaultValue={suggestion.distanceKm} />
           <InlineNumberField label="min" name="durationMin" step="1" required={false} />
           <SubmitButton className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
             Log

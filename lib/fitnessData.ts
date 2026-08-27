@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { suggestNextRun, suggestNextBike, DEFAULT_WEIGHT_INCREMENT_LB } from "@/lib/overload";
+import { suggestNextRun, suggestNextBike, suggestNextRow, suggestNextSwim, DEFAULT_WEIGHT_INCREMENT_LB } from "@/lib/overload";
 import {
   resolveLiftDays,
   resolveCycleTemplate,
@@ -41,6 +41,8 @@ export async function getFitnessData(profileId: string) {
   const latestRun = cardio.find((c) => c.type === "RUN") ?? null;
   const bikeLogs = cardio.filter((c) => c.type === "BIKE");
   const latestBike = bikeLogs[0] ?? null;
+  const latestRow = cardio.find((c) => c.type === "ROW") ?? null;
+  const latestSwim = cardio.find((c) => c.type === "SWIM") ?? null;
 
   return {
     lifts,
@@ -53,8 +55,12 @@ export async function getFitnessData(profileId: string) {
     latestRun,
     bikeLogs,
     latestBike,
+    latestRow,
+    latestSwim,
     runSuggestion: suggestNextRun(latestRun),
     bikeSuggestion: suggestNextBike(bikeLogs),
+    rowSuggestion: suggestNextRow(latestRow),
+    swimSuggestion: suggestNextSwim(latestSwim),
   };
 }
 
@@ -66,9 +72,13 @@ export type DayEntryInfo = {
   liftDay: LiftDayDef | null;
   isRunDay: boolean;
   isBikeDay: boolean;
+  isRowDay: boolean;
+  isSwimDay: boolean;
   isGenericGymDay: boolean;
   ranToday: boolean;
   bikedToday: boolean;
+  rowedToday: boolean;
+  swamToday: boolean;
   loggedToday: (exerciseName: string) => boolean;
   incrementLb: (exerciseName: string) => number;
 };
@@ -85,9 +95,13 @@ export function resolveDayEntry(data: FitnessData, dateStr: string): DayEntryInf
     liftDay,
     isRunDay: entry.type === "RUN",
     isBikeDay: entry.type === "BIKE",
+    isRowDay: entry.type === "ROW",
+    isSwimDay: entry.type === "SWIM",
     isGenericGymDay: entry.type === "GYM" && !liftDay,
     ranToday: data.latestRun != null && toDateInputValue(data.latestRun.date) === dateStr,
     bikedToday: data.latestBike != null && toDateInputValue(data.latestBike.date) === dateStr,
+    rowedToday: data.latestRow != null && toDateInputValue(data.latestRow.date) === dateStr,
+    swamToday: data.latestSwim != null && toDateInputValue(data.latestSwim.date) === dateStr,
     loggedToday: (name: string) => {
       const log = data.latestByExercise.get(name);
       return log != null && toDateInputValue(log.date) === dateStr;

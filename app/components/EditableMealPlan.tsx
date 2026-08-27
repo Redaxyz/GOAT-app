@@ -2,8 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
-import { setMealPlanItemAmount } from "@/app/actions";
-import { macroGrams, sumMacros, type MacroItem, type MealKey } from "@/lib/nutrition";
+import { setMealPlanItemAmount, setMealPlanItemSwap } from "@/app/actions";
+import { applyFoodSwaps, buildOverrideMap, foodSwapKey, macroGrams, sumMacros, type MacroItem, type MealKey } from "@/lib/nutrition";
 
 type DayPlan = {
   day: string;
@@ -13,12 +13,20 @@ type DayPlan = {
   dinner: MacroItem[];
 };
 
+type OverrideRow = { day: string; meal: string; groceryId: string; amountG: number };
+
 function amountKey(day: string, meal: MealKey, groceryId: string): string {
   return `${day}|${meal}|${groceryId}`;
 }
 
-/** Editable version of the daily meal plan — changing a serving size recomputes that item's P/C/F, the day's totals, and (after a short save) the grocery list above, live. */
-export default function EditableMealPlan({ days }: { days: DayPlan[] }) {
+/**
+ * Editable version of the daily meal plan — changing a serving size, or
+ * swapping an item for one of its alternatives, recomputes that item's
+ * P/C/F, the day's totals, and (after a short save) the grocery list above,
+ * live. Persisted to the STANDING plan for that weekday going forward, not
+ * just today (see setMealPlanItemAmount / setMealPlanItemSwap).
+ */
+export default function EditableMealPlan({ days, overrideRows }: { days: DayPlan[]; overrideRows: OverrideRow[] }) {
   const [amounts, setAmounts] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
     for (const d of days) {
@@ -28,6 +36,7 @@ export default function EditableMealPlan({ days }: { days: DayPlan[] }) {
     }
     return init;
   });
+  const [swaps, setSwaps] = useState<Record<string, string>>({});
   const router = useRouter();
   const [, startTransition] = useTransition();
   // One save timer per field, keyed the same as `amounts` — so editing
@@ -35,9 +44,19 @@ export default function EditableMealPlan({ days }: { days: DayPlan[] }) {
   // shared timer dropping all but the last-touched field.
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
+  const overrides = buildOverrideMap(overrideRows);
+  const swapsMap = new Map(Object.entries(swaps));
+
   function liveItem(day: string, meal: MealKey, it: MacroItem): MacroItem {
     const amount = amounts[amountKey(day, meal, it.groceryId)] ?? it.amount;
     return { ...it, amount, ...macroGrams(amount, it.per100g) };
+  }
+
+  /** Live amounts -> live swaps (identity + the pasta/rice sauce row) -> live amounts again, so a freshly-swapped-in item still picks up its own pending edit. */
+  function liveMealItems(day: string, meal: MealKey, baseItems: MacroItem[]): MacroItem[] {
+    const withAmounts = baseItems.map((it) => liveItem(day, meal, it));
+    const swapped = applyFoodSwaps(withAmounts, day, meal, swapsMap, overrides);
+    return swapped.map((it) => liveItem(day, meal, it));
   }
 
   function handleChange(day: string, meal: MealKey, groceryId: string, value: string) {
@@ -58,19 +77,35 @@ export default function EditableMealPlan({ days }: { days: DayPlan[] }) {
     }, 900);
   }
 
+  function handleSwapChange(day: string, meal: MealKey, slot: string, groceryId: string) {
+    setSwaps((prev) => ({ ...prev, [foodSwapKey(day, meal, slot)]: groceryId }));
+    startTransition(async () => {
+      await setMealPlanItemSwap(day, meal, slot, groceryId);
+      router.refresh();
+    });
+  }
+
   return (
     <div className="space-y-8">
       {days.map((d) => {
-        const breakfast = d.breakfast.map((it) => liveItem(d.day, "breakfast", it));
-        const lunch = d.lunch.map((it) => liveItem(d.day, "lunch", it));
-        const dinner = d.dinner.map((it) => liveItem(d.day, "dinner", it));
+        const breakfast = liveMealItems(d.day, "breakfast", d.breakfast);
+        const lunch = liveMealItems(d.day, "lunch", d.lunch);
+        const dinner = liveMealItems(d.day, "dinner", d.dinner);
         const total = sumMacros([breakfast, lunch, dinner]);
         return (
           <div key={d.day}>
             <div className="text-base font-extrabold mb-2">{d.day}</div>
-            <EditableMealBlock label="Breakfast" day={d.day} meal="breakfast" items={breakfast} onChange={handleChange} />
-            <EditableMealBlock label="Lunch" day={d.day} meal="lunch" items={lunch} note={d.lunchNote} onChange={handleChange} />
-            <EditableMealBlock label="Dinner" day={d.day} meal="dinner" items={dinner} onChange={handleChange} />
+            <EditableMealBlock label="Breakfast" day={d.day} meal="breakfast" items={breakfast} onChange={handleChange} onSwapChange={handleSwapChange} />
+            <EditableMealBlock
+              label="Lunch"
+              day={d.day}
+              meal="lunch"
+              items={lunch}
+              note={d.lunchNote}
+              onChange={handleChange}
+              onSwapChange={handleSwapChange}
+            />
+            <EditableMealBlock label="Dinner" day={d.day} meal="dinner" items={dinner} onChange={handleChange} onSwapChange={handleSwapChange} />
             <div className="flex items-center justify-between text-sm font-extrabold pt-1">
               <span className="opacity-60">Day total</span>
               <span>
@@ -93,6 +128,7 @@ function EditableMealBlock({
   items,
   note,
   onChange,
+  onSwapChange,
 }: {
   label: string;
   day: string;
@@ -100,6 +136,7 @@ function EditableMealBlock({
   items: MacroItem[];
   note?: string;
   onChange: (day: string, meal: MealKey, groceryId: string, value: string) => void;
+  onSwapChange: (day: string, meal: MealKey, slot: string, groceryId: string) => void;
 }) {
   return (
     <div className="mb-3">
@@ -113,7 +150,21 @@ function EditableMealBlock({
       </div>
       {items.map((it) => (
         <div key={it.groceryId} className={`grid ${GRID_COLS} items-center gap-2 py-2 text-base border-b-2 border-theme-accent/15 font-bold`}>
-          <span className="truncate">{it.item}</span>
+          {it.alternatives && it.slot ? (
+            <select
+              value={it.groceryId}
+              onChange={(e) => onSwapChange(day, meal, it.slot as string, e.target.value)}
+              className="truncate bg-transparent border-b-2 border-dotted border-theme-accent/40 outline-none font-bold"
+            >
+              {it.alternatives.map((alt) => (
+                <option key={alt.groceryId} value={alt.groceryId}>
+                  {alt.item}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="truncate">{it.item}</span>
+          )}
           <span className="flex items-center justify-end gap-1 whitespace-nowrap">
             <input
               type="number"

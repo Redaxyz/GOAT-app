@@ -44,6 +44,11 @@ model Profile {
   scheduleTemplate     ScheduleTemplate[]
   mealPlanItemOverride MealPlanItemOverride[]
   foodLogs             FoodLog[]
+  foodItemSwaps        FoodItemSwap[]
+  mealPlanItemSwaps    MealPlanItemSwap[]
+  customFoodItems      CustomFoodItem[]
+  snackLogs            SnackLog[]
+  foodLogCompletes     DailyFoodLogComplete[]
 
   @@map("profiles")
 }
@@ -187,8 +192,8 @@ model ScheduleOverride {
   @@map("schedule_overrides")
 }
 
-// ---- Fitness: cardio (run / bike) ----------------------------------------
-// type is "RUN" | "BIKE" (see lib/types.ts)
+// ---- Fitness: cardio (run / bike / row / swim) -----------------------------
+// type is "RUN" | "BIKE" | "ROW" | "SWIM" (see lib/types.ts)
 
 model CardioLog {
   id          String   @id @default(cuid())
@@ -227,6 +232,28 @@ model MealPlanItemOverride {
   @@map("meal_plan_item_overrides")
 }
 
+// ---- Nutrition: standing per-weekday item substitutions --------------------
+// The weekday counterpart to FoodItemSwap below: swaps a meal-slot's item for
+// an alternative on the STANDING plan for a weekday going forward (so it
+// feeds the grocery list and becomes lunch/dinner's default on that weekday
+// going forward), rather than just one specific date. day is "Monday".."Sunday".
+
+model MealPlanItemSwap {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  day       String
+  meal      String
+  slot      String
+  groceryId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, day, meal, slot])
+  @@map("meal_plan_item_swaps")
+}
+
 // ---- Nutrition: actual per-date food log -----------------------------------
 // Distinct from MealPlanItemOverride above: that adjusts the standing plan
 // for a weekday going forward (feeds the grocery list); this records what
@@ -247,4 +274,94 @@ model FoodLog {
 
   @@unique([profileId, date, meal, groceryId])
   @@map("food_logs")
+}
+
+// ---- Nutrition: per-date item substitutions --------------------------------
+// A logged item can be swapped for one of its alternatives (see MacroItem.slot
+// / alternatives in lib/nutrition.ts) for one specific date — e.g. lunch's
+// meat swapped from chicken thigh to salmon just for today. Distinct from
+// FoodLog: this records WHICH food fills a slot, not how much of it was
+// eaten. slot is a stable id ("yogurt" | "meat" | "carb"), independent of
+// which groceryId happens to be the day's default.
+
+model FoodItemSwap {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date      DateTime
+  meal      String
+  slot      String
+  groceryId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, date, meal, slot])
+  @@map("food_item_swaps")
+}
+
+// ---- Nutrition: user-defined foods -----------------------------------------
+// A free-form food a profile has added themselves, with its P/F/C given for
+// one specific reference weight (amountG) rather than normalized to 100g —
+// state records whether that weight/macro reading is for the food raw or
+// cooked. Not wired into the locked meal plan; lives on the Grocery page as
+// a personal reference list.
+
+model CustomFoodItem {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  name      String
+  amountG   Float
+  state     String // "raw" | "cooked"
+  proteinG  Float
+  carbG     Float
+  fatG      Float
+
+  createdAt DateTime @default(now())
+
+  @@map("custom_food_items")
+}
+
+// ---- Nutrition: snacks -----------------------------------------------------
+// Ad-hoc extras logged for one specific date, on top of the fixed
+// breakfast/lunch/dinner plan — pulled from the meal catalog, a saved
+// CustomFoodItem, or typed in free-hand ("Other"). Unlike FoodLog, a snack
+// isn't tied to a plan slot, so its resolved P/C/F is stored directly rather
+// than a groceryId + amount to look a rate up by; amountG is kept only for
+// display and is null for "Other" entries.
+
+model SnackLog {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date      DateTime
+  label     String
+  amountG   Float?
+  proteinG  Float
+  carbG     Float
+  fatG      Float
+
+  createdAt DateTime @default(now())
+
+  @@index([profileId, date])
+  @@map("snack_logs")
+}
+
+// ---- Nutrition: "done logging for today" marker ----------------------------
+// Just a presence flag, deliberately separate from DailyCheckIn — that
+// model's stuckToMealPlan/stuckToFitnessPlan are required fields answered
+// through the past-day check-in form, and auto-creating a row here shouldn't
+// silently affect that form or the success-rate stats derived from it.
+
+model DailyFoodLogComplete {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date      DateTime
+
+  createdAt DateTime @default(now())
+
+  @@unique([profileId, date])
+  @@map("daily_food_log_complete")
 }

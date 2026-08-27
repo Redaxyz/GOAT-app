@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireActiveProfile } from "@/lib/session";
-import { submitLift, submitCardio, updateWorkoutDayPlans, addWorkoutDay, updateScheduleTemplate } from "@/app/actions";
+import { submitLift, updateWorkoutDayPlans, addWorkoutDay, updateScheduleTemplate } from "@/app/actions";
 import { MAX_LIFT_SETS } from "@/lib/overload";
 import { getFitnessData, resolveDayEntry } from "@/lib/fitnessData";
 import {
@@ -11,11 +11,15 @@ import {
   type ScheduleDayType,
 } from "@/lib/schedule";
 import { today, formatDateLabel, toDateInputValue, dateOnly, addDays } from "@/lib/date";
+import type { CardioType } from "@/lib/types";
 import { PencilIcon } from "@/app/components/icons";
 import Row from "@/app/components/Row";
 import SubmitButton from "@/app/components/SubmitButton";
 import MonthCalendar, { type CalendarCell } from "@/app/components/MonthCalendar";
 import TodayWorkoutCard, { LiftRow, CardioRow, liftSets, formatSetsLb } from "@/app/components/TodayWorkoutCard";
+import LogCardioForm from "@/app/components/LogCardioForm";
+
+const CARDIO_TYPE_LABEL: Record<CardioType, string> = { RUN: "Run", BIKE: "Bike", ROW: "Row", SWIM: "Swim" };
 
 export default async function FitnessPage({ searchParams }: { searchParams: Promise<{ edit?: string }> }) {
   const profile = await requireActiveProfile();
@@ -89,8 +93,18 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
           </div>
         ))}
 
-        {!info.isRunDay && <CardioRow label="Run" isToday={false} doneToday={false} lastLog={data.latestRun} suggestion={data.runSuggestion} />}
-        {!info.isBikeDay && <CardioRow label="Bike" isToday={false} doneToday={false} lastLog={data.latestBike} suggestion={data.bikeSuggestion} />}
+        {!info.isRunDay && (
+          <CardioRow label="Run" isToday={false} doneToday={false} lastLog={data.latestRun} suggestion={data.runSuggestion} cardioType="RUN" />
+        )}
+        {!info.isBikeDay && (
+          <CardioRow label="Bike" isToday={false} doneToday={false} lastLog={data.latestBike} suggestion={data.bikeSuggestion} cardioType="BIKE" />
+        )}
+        {!info.isRowDay && (
+          <CardioRow label="Row" isToday={false} doneToday={false} lastLog={data.latestRow} suggestion={data.rowSuggestion} cardioType="ROW" />
+        )}
+        {!info.isSwimDay && (
+          <CardioRow label="Swim" isToday={false} doneToday={false} lastLog={data.latestSwim} suggestion={data.swimSuggestion} cardioType="SWIM" />
+        )}
       </section>
 
       <section className="grid sm:grid-cols-2 gap-x-10 gap-y-10">
@@ -167,63 +181,8 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
         </div>
 
         <div>
-          <h2 className="text-lg font-extrabold mb-3">Log a run / bike</h2>
-          <form action={submitCardio}>
-            <Row>
-              <label htmlFor="type" className="text-lg font-bold opacity-70">
-                Type
-              </label>
-              <select
-                id="type"
-                name="type"
-                className="text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              >
-                <option value="RUN">Run</option>
-                <option value="BIKE">Bike</option>
-              </select>
-            </Row>
-            <Row>
-              <label htmlFor="cardio-date" className="text-lg font-bold opacity-70">
-                Date
-              </label>
-              <input
-                id="cardio-date"
-                type="date"
-                name="date"
-                defaultValue={today()}
-                max={today()}
-                className="text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              />
-            </Row>
-            <Row>
-              <label htmlFor="distanceKm" className="text-lg font-bold opacity-70">
-                Distance (km)
-              </label>
-              <input
-                id="distanceKm"
-                type="number"
-                step="0.1"
-                name="distanceKm"
-                required
-                className="w-24 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              />
-            </Row>
-            <Row>
-              <label htmlFor="durationMin" className="text-lg font-bold opacity-70">
-                Duration (min)
-              </label>
-              <input
-                id="durationMin"
-                type="number"
-                step="1"
-                name="durationMin"
-                className="w-24 text-right text-lg font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              />
-            </Row>
-            <SubmitButton className="w-full mt-6 px-6 py-3.5 rounded-full bg-theme-accent text-theme-own text-base font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
-              Log cardio
-            </SubmitButton>
-          </form>
+          <h2 className="text-lg font-extrabold mb-3">Log cardio</h2>
+          <LogCardioForm />
         </div>
       </section>
 
@@ -248,16 +207,21 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
       </section>
 
       <section>
-        <h2 className="text-lg font-extrabold mb-3">Every logged run / bike</h2>
-        {data.cardio.length === 0 && <p className="text-lg font-bold opacity-70">No runs or rides logged yet.</p>}
-        {data.cardio.map((c) => (
-          <div key={c.id} className="flex items-center justify-between gap-4 py-3.5 border-b-2 border-theme-accent/15 text-lg font-bold">
-            <span>{c.type === "RUN" ? "Run" : "Bike"}</span>
-            <span className="font-extrabold opacity-80">
-              {formatDateLabel(c.date)} — {c.distanceKm}km{c.durationMin ? ` in ${c.durationMin}min` : ""}
-            </span>
-          </div>
-        ))}
+        <h2 className="text-lg font-extrabold mb-3">Every logged cardio session</h2>
+        {data.cardio.length === 0 && <p className="text-lg font-bold opacity-70">No cardio logged yet.</p>}
+        {data.cardio.map((c) => {
+          const unit = c.type === "ROW" || c.type === "SWIM" ? "m" : "km";
+          return (
+            <div key={c.id} className="flex items-center justify-between gap-4 py-3.5 border-b-2 border-theme-accent/15 text-lg font-bold">
+              <span>{CARDIO_TYPE_LABEL[c.type as CardioType]}</span>
+              <span className="font-extrabold opacity-80">
+                {formatDateLabel(c.date)} — {c.distanceKm}
+                {unit}
+                {c.durationMin ? ` in ${c.durationMin}min` : ""}
+              </span>
+            </div>
+          );
+        })}
       </section>
     </div>
   );

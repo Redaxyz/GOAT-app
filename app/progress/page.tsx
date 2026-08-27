@@ -4,7 +4,7 @@ import { submitWeight, updateProfileSettings } from "@/app/actions";
 import { computePace } from "@/lib/progress";
 import { today, toDateInputValue, addDays, daysBetween, mondayOfWeek, weekdayName, dateOnly } from "@/lib/date";
 import { cmToFeetInches, kgToLb } from "@/lib/units";
-import { getMealPlan, buildOverrideMap, type MealKey } from "@/lib/nutrition";
+import { getMealPlan, buildOverrideMap, buildMealPlanSwapMap, buildFoodSwapMap, applyFoodSwaps, type MealKey } from "@/lib/nutrition";
 import { buildFoodLogMap, getLoggedItems, sumLoggedMacros } from "@/lib/foodLog";
 import WeightChart from "@/app/components/WeightChart";
 import BmiCalculator from "@/app/components/BmiCalculator";
@@ -21,7 +21,7 @@ export default async function ProgressPage() {
   const todayStr = today();
   const monday = mondayOfWeek(todayStr);
 
-  const [logs, checkIns, overrideRows, weekFoodLogRows] = await Promise.all([
+  const [logs, checkIns, overrideRows, weekFoodLogRows, weekdaySwapRows, weekDateSwapRows] = await Promise.all([
     prisma.weightLog.findMany({
       where: { profileId: profile.id },
       orderBy: { date: "asc" },
@@ -32,6 +32,8 @@ export default async function ProgressPage() {
     }),
     prisma.mealPlanItemOverride.findMany({ where: { profileId: profile.id } }),
     prisma.foodLog.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
+    prisma.mealPlanItemSwap.findMany({ where: { profileId: profile.id } }),
+    prisma.foodItemSwap.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
   ]);
 
   const totalDays = checkIns.length;
@@ -50,7 +52,8 @@ export default async function ProgressPage() {
   // summed Monday->today, resetting each Monday. A day only counts once it
   // has both a burned reading and at least one logged food item.
   const overrides = buildOverrideMap(overrideRows);
-  const mealPlanByDay = new Map<string, ReturnType<typeof getMealPlan>[number]>(getMealPlan(overrides).map((d) => [d.day, d]));
+  const weekdaySwaps = buildMealPlanSwapMap(weekdaySwapRows);
+  const mealPlanByDay = new Map<string, ReturnType<typeof getMealPlan>[number]>(getMealPlan(overrides, weekdaySwaps).map((d) => [d.day, d]));
   const burnedByDate = new Map(checkIns.map((c) => [toDateInputValue(c.date), c.bmrReadingKcal]));
 
   let weeklyDeficit = 0;
@@ -60,11 +63,18 @@ export default async function ProgressPage() {
     const dayPlan = mealPlanByDay.get(weekdayName(d));
     if (burned == null || !dayPlan) continue;
 
+    // That date's own swap layers on top of the standing weekday plan above,
+    // same as Home — otherwise a logged, swapped item wouldn't match any
+    // item in the plan and would silently drop out of the sum.
+    const dateSwaps = buildFoodSwapMap(
+      dayPlan.day,
+      weekDateSwapRows.filter((r) => toDateInputValue(r.date) === d)
+    );
     const foodLogMap = buildFoodLogMap(weekFoodLogRows.filter((r) => toDateInputValue(r.date) === d));
     const mealGroups: { meal: MealKey; items: typeof dayPlan.breakfast }[] = [
-      { meal: "breakfast", items: dayPlan.breakfast },
-      { meal: "lunch", items: dayPlan.lunch },
-      { meal: "dinner", items: dayPlan.dinner },
+      { meal: "breakfast", items: applyFoodSwaps(dayPlan.breakfast, dayPlan.day, "breakfast", dateSwaps, overrides) },
+      { meal: "lunch", items: applyFoodSwaps(dayPlan.lunch, dayPlan.day, "lunch", dateSwaps, overrides) },
+      { meal: "dinner", items: applyFoodSwaps(dayPlan.dinner, dayPlan.day, "dinner", dateSwaps, overrides) },
     ];
     const eaten = sumLoggedMacros(getLoggedItems(mealGroups, foodLogMap));
     if (eaten.itemsLogged === 0) continue;

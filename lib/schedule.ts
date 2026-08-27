@@ -44,7 +44,7 @@ export function parseExercisesText(text: string): string[] {
 // drifts regardless of when the app is opened.
 const CYCLE_ANCHOR = "2026-08-17"; // a Monday
 
-export type ScheduleDayType = "GYM" | "RUN" | "BIKE" | "REST" | "OTHER";
+export type ScheduleDayType = "GYM" | "RUN" | "BIKE" | "ROW" | "SWIM" | "REST" | "OTHER";
 
 /** A saved per-date override — customLabel only applies when type is "OTHER". */
 export type ScheduleOverrideInfo = { type: ScheduleDayType; customLabel: string | null };
@@ -137,6 +137,8 @@ export const SCHEDULE_TYPE_LABEL: Record<ScheduleDayType, string> = {
   GYM: "Gym",
   RUN: "Run",
   BIKE: "Bike",
+  ROW: "Row",
+  SWIM: "Swim",
   REST: "Rest",
   OTHER: "Other",
 };

@@ -18,6 +18,8 @@ const TYPE_STYLE: Record<ScheduleDayType, string> = {
   GYM: "bg-theme-accent text-theme-own",
   RUN: "bg-theme-accent/35",
   BIKE: "bg-theme-accent/15",
+  ROW: "bg-theme-accent/50",
+  SWIM: "bg-theme-accent/25",
   REST: "bg-transparent opacity-40",
   OTHER: "bg-theme-accent/60 text-theme-own",
 };
@@ -26,12 +28,14 @@ const TYPE_ABBR: Record<ScheduleDayType, string> = {
   GYM: "G",
   RUN: "R",
   BIKE: "B",
+  ROW: "Rw",
+  SWIM: "Sw",
   REST: "–",
   OTHER: "O",
 };
 
 // "Other" is edited via its own text field below, not a plain type button.
-const EDITABLE_TYPES: ScheduleDayType[] = ["GYM", "RUN", "BIKE", "REST"];
+const EDITABLE_TYPES: ScheduleDayType[] = ["GYM", "RUN", "BIKE", "ROW", "SWIM", "REST"];
 
 const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 
