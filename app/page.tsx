@@ -1,14 +1,17 @@
 import { getActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { submitCheckIn } from "@/app/actions";
-import { today, addDays, isSunday, dateOnly, formatDateLabel } from "@/lib/date";
+import { today, addDays, isSunday, weekdayName, dateOnly, formatDateLabel } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
 import { getFitnessData } from "@/lib/fitnessData";
+import { getMealPlan, buildOverrideMap, type MealKey } from "@/lib/nutrition";
+import { foodLogKey } from "@/lib/foodLog";
 import Link from "next/link";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/app/components/icons";
 import { DisplayRow, NumberRow, YesNoRow, NotesRow, NotesDisplayRow } from "@/app/components/CheckInFields";
 import YesterdayCard from "@/app/components/YesterdayCard";
 import TodayWorkoutCard from "@/app/components/TodayWorkoutCard";
+import FoodLogSection from "@/app/components/FoodLogSection";
 import SubmitButton from "@/app/components/SubmitButton";
 
 export default async function HomePage({
@@ -63,18 +66,45 @@ export default async function HomePage({
   );
 }
 
-/** The default view: a quick recap of yesterday, then today's workout, both actionable right from Home. */
+/** The default view: a quick recap of yesterday, today's workout, and today's food log — all actionable right from Home. */
 async function TodaySections({ profileId }: { profileId: string }) {
-  const yesterday = addDays(today(), -1);
-  const [yesterdayCheckIn, fitnessData] = await Promise.all([
+  const todayStr = today();
+  const yesterday = addDays(todayStr, -1);
+
+  const [yesterdayCheckIn, fitnessData, overrideRows, foodLogRows] = await Promise.all([
     prisma.dailyCheckIn.findUnique({ where: { profileId_date: { profileId, date: dateOnly(yesterday) } } }),
     getFitnessData(profileId),
+    prisma.mealPlanItemOverride.findMany({ where: { profileId } }),
+    prisma.foodLog.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
   ]);
+
+  const overrides = buildOverrideMap(overrideRows);
+  const todayPlan = getMealPlan(overrides).find((d) => d.day === weekdayName(todayStr));
+
+  const initialFoodLog: Record<string, number> = {};
+  for (const row of foodLogRows) initialFoodLog[foodLogKey(row.meal as MealKey, row.groceryId)] = row.amountG;
 
   return (
     <>
       <YesterdayCard dateStr={yesterday} existing={yesterdayCheckIn} />
-      <TodayWorkoutCard data={fitnessData} dateStr={today()} />
+      <TodayWorkoutCard data={fitnessData} dateStr={todayStr} />
+
+      {todayPlan && (
+        <section>
+          <h2 className="text-lg font-extrabold mb-1">Today&apos;s meals</h2>
+          <p className="text-sm font-semibold opacity-70 mb-4">Log what you actually ate — the faint number in each box is the plan&apos;s suggestion.</p>
+          <FoodLogSection
+            dateStr={todayStr}
+            mealGroups={[
+              { meal: "breakfast", label: "Breakfast", items: todayPlan.breakfast },
+              { meal: "lunch", label: "Lunch", items: todayPlan.lunch },
+              { meal: "dinner", label: "Dinner", items: todayPlan.dinner },
+            ]}
+            initialFoodLog={initialFoodLog}
+            targetTotal={todayPlan.total}
+          />
+        </section>
+      )}
     </>
   );
 }

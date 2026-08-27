@@ -255,6 +255,28 @@ export async function setMealPlanItemAmount(day: string, meal: MealKey, groceryI
   revalidatePath("/grocery");
 }
 
+/**
+ * Logs the actual amount eaten of one meal-plan item on one specific date —
+ * distinct from setMealPlanItemAmount above, which adjusts the standing plan
+ * instead. Pass null to un-log it (the field was cleared back to empty).
+ */
+export async function logFoodItem(date: string, meal: MealKey, groceryId: string, amountG: number | null) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const where = { profileId_date_meal_groceryId: { profileId: profile.id, date: dateOnly(date), meal, groceryId } };
+
+  if (amountG == null) {
+    await prisma.foodLog.deleteMany({ where: { profileId: profile.id, date: dateOnly(date), meal, groceryId } });
+  } else {
+    if (!Number.isFinite(amountG) || amountG < 0) throw new Error("Amount must be a non-negative number");
+    await prisma.foodLog.upsert({ where, update: { amountG }, create: { profileId: profile.id, date: dateOnly(date), meal, groceryId, amountG } });
+  }
+
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
 export async function updateProfileSettings(formData: FormData) {
   const profile = await getActiveProfile();
   if (!profile) throw new Error("No active profile");

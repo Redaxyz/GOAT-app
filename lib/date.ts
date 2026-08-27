@@ -44,3 +44,8 @@ export function daysBetween(from: string, to: string): number {
 export function isSunday(isoDate: string): boolean {
   return dayOfWeekIndex(isoDate) === 0;
 }
+
+/** Full weekday name ("Monday".."Sunday") — matches the day keys used in the locked meal plan (lib/nutrition.ts). */
+export function weekdayName(isoDate: string): string {
+  return dateOnly(isoDate).toLocaleDateString(undefined, { weekday: "long", timeZone: "UTC" });
+}

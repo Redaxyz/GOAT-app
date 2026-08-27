@@ -43,6 +43,7 @@ model Profile {
   scheduleOverrides    ScheduleOverride[]
   scheduleTemplate     ScheduleTemplate[]
   mealPlanItemOverride MealPlanItemOverride[]
+  foodLogs             FoodLog[]
 
   @@map("profiles")
 }
@@ -221,4 +222,26 @@ model MealPlanItemOverride {
 
   @@unique([profileId, day, meal, groceryId])
   @@map("meal_plan_item_overrides")
+}
+
+// ---- Nutrition: actual per-date food log -----------------------------------
+// Distinct from MealPlanItemOverride above: that adjusts the standing plan
+// for a weekday going forward (feeds the grocery list); this records what
+// was actually eaten on one specific calendar date. groceryId matches the
+// same stable ids used there.
+
+model FoodLog {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date      DateTime
+  meal      String // "breakfast" | "lunch" | "dinner"
+  groceryId String
+  amountG   Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, date, meal, groceryId])
+  @@map("food_logs")
 }
