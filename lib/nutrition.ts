@@ -21,7 +21,7 @@ const BASMATI_RICE_PER_100G_RAW = { protein: 7.13, carb: 78.13, fat: 0.44 };
 const PASTA_PER_100G_DRY = { protein: 17.637, carb: 67.022, fat: 1.7637 }; // 10p/38c/1f per 2oz/56.7g
 const RAO_SAUCE_PER_100G = { protein: 1.6, carb: 6.5, fat: 4.8 }; // Rao's Homemade, ~90cal/2p/8c/6f per 1/2 cup (124g) serving
 const YOGURT_PER_100G = { protein: 10, carb: 4.12, fat: 0 };
-const GRANOLA_PER_100G = { protein: 10, carb: 64, fat: 15 };
+const GRANOLA_PER_100G = { protein: 5 / 0.28, carb: 17 / 0.28, fat: 3 / 0.28 }; // 28g serving: 5P/17C/3F
 const FRUIT_PER_100G = { protein: 0.9, carb: 15.5, fat: 0.3 };
 const EGG_PER_100G_COOKED = { protein: 12.6, carb: 1.2, fat: 9.6 }; // ~2 large eggs per 100g cooked
 const TOAST_PER_100G_BREAD = { protein: 12, carb: 50, fat: 4 }; // standard sandwich bread, ~25g/slice
@@ -358,6 +358,70 @@ function extrasFor(day: string, meal: MealKey, extraItems: ExtraItemRow[]): Macr
         extraItemId: e.id,
       };
     });
+}
+
+/**
+ * Makes every item in a meal alterable to ANY food, not just its usual
+ * restricted category — used only for Home's fully-modular "today" view,
+ * never the standing Grocery plan. An item that already has its own slot
+ * (yogurt/meat/carb) keeps it, so previously-saved swaps still resolve; one
+ * that doesn't gets its own groceryId as a self-referential slot. Either
+ * way its alternatives become the full catalog, grouped by category.
+ */
+export function makeFullySwappable(items: MacroItem[], customFoods: CustomFoodRow[] = []): MacroItem[] {
+  const catalog = allFoodOptions(customFoods);
+  return items.map((it) => ({ ...it, slot: it.slot ?? it.groceryId, alternatives: catalog }));
+}
+
+/** A FoodItemExtra row — Home's per-date counterpart to ExtraItemRow above; groceryId can be either a built-in catalog id or a custom food's id (see allFoodOptions). */
+export type DateExtraRow = { id: string; meal: string; groceryId: string; amountG: number };
+
+/** A FoodItemRemoval row. */
+export type RemovalRow = { meal: string; groceryId: string };
+
+/** Extra items added to one meal for a specific date (see FoodItemExtra) — always appended last, after removals are applied, so re-adding something you'd removed always shows it again. */
+export function appendDailyExtras(items: MacroItem[], meal: MealKey, extras: DateExtraRow[], customFoods: CustomFoodRow[] = []): MacroItem[] {
+  const catalog = allFoodOptions(customFoods);
+  const extraItems = extras
+    .filter((e) => e.meal === meal)
+    .map((e): MacroItem | null => {
+      const option = catalog.find((o) => o.groceryId === e.groceryId);
+      if (!option) return null; // the food it referenced no longer exists — skip rather than crash
+      return { item: option.item, groceryId: option.groceryId, amount: e.amountG, unit: "g", per100g: option.per100g, ...macroGrams(e.amountG, option.per100g), extraItemId: e.id };
+    })
+    .filter((it): it is MacroItem => it != null);
+  return [...items, ...extraItems];
+}
+
+/** Hides one meal's plan/swapped items that have been removed for a specific date (see FoodItemRemoval) — keyed by whatever's currently shown, i.e. after any swap has already been applied. Never touches FoodItemExtra rows; those are removed by deleting the row itself. */
+export function removeDailyItems(items: MacroItem[], meal: MealKey, removals: RemovalRow[]): MacroItem[] {
+  const removedIds = new Set(removals.filter((r) => r.meal === meal).map((r) => r.groceryId));
+  return items.filter((it) => !removedIds.has(it.groceryId));
+}
+
+/**
+ * The full pipeline behind Home's fully-modular "today" view for one meal:
+ * every item becomes swappable to anything -> today's own swap (if any) is
+ * applied -> anything removed today is hidden -> anything added today is
+ * appended. Order matters for the last two: filtering removals before
+ * appending extras means re-adding something you'd removed shows it again
+ * rather than having it immediately filtered back out.
+ */
+export function applyDailyModifications(
+  items: MacroItem[],
+  meal: MealKey,
+  day: string,
+  swaps: Map<string, string>,
+  overrides: Map<string, number>,
+  customFoods: CustomFoodRow[],
+  extras: DateExtraRow[],
+  removals: RemovalRow[]
+): MacroItem[] {
+  let result = makeFullySwappable(items, customFoods);
+  result = applyFoodSwaps(result, day, meal, swaps, overrides);
+  result = removeDailyItems(result, meal, removals);
+  result = appendDailyExtras(result, meal, extras, customFoods);
+  return result;
 }
 
 export function sumMacros(items: MacroItem[][]) {

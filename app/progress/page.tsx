@@ -4,7 +4,7 @@ import { submitWeight, updateProfileSettings } from "@/app/actions";
 import { computePace } from "@/lib/progress";
 import { today, toDateInputValue, addDays, daysBetween, mondayOfWeek, weekdayName, dateOnly } from "@/lib/date";
 import { cmToFeetInches, kgToLb } from "@/lib/units";
-import { getMealPlan, buildOverrideMap, buildMealPlanSwapMap, buildFoodSwapMap, applyFoodSwaps, type MealKey } from "@/lib/nutrition";
+import { getMealPlan, buildOverrideMap, buildMealPlanSwapMap, buildFoodSwapMap, applyDailyModifications, type MealKey } from "@/lib/nutrition";
 import { buildFoodLogMap, getLoggedItems, sumLoggedMacros } from "@/lib/foodLog";
 import WeightChart from "@/app/components/WeightChart";
 import BmiCalculator from "@/app/components/BmiCalculator";
@@ -21,22 +21,25 @@ export default async function ProgressPage() {
   const todayStr = today();
   const monday = mondayOfWeek(todayStr);
 
-  const [logs, checkIns, overrideRows, weekFoodLogRows, weekdaySwapRows, weekDateSwapRows, customFoodItems, extraItemRows] = await Promise.all([
-    prisma.weightLog.findMany({
-      where: { profileId: profile.id },
-      orderBy: { date: "asc" },
-    }),
-    prisma.dailyCheckIn.findMany({
-      where: { profileId: profile.id },
-      select: { date: true, stuckToFitnessPlan: true, stuckToMealPlan: true, bmrReadingKcal: true },
-    }),
-    prisma.mealPlanItemOverride.findMany({ where: { profileId: profile.id } }),
-    prisma.foodLog.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
-    prisma.mealPlanItemSwap.findMany({ where: { profileId: profile.id } }),
-    prisma.foodItemSwap.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
-    prisma.customFoodItem.findMany({ where: { profileId: profile.id } }),
-    prisma.mealPlanExtraItem.findMany({ where: { profileId: profile.id }, include: { customFoodItem: true } }),
-  ]);
+  const [logs, checkIns, overrideRows, weekFoodLogRows, weekdaySwapRows, weekDateSwapRows, customFoodItems, extraItemRows, weekDateExtraRows, weekRemovalRows] =
+    await Promise.all([
+      prisma.weightLog.findMany({
+        where: { profileId: profile.id },
+        orderBy: { date: "asc" },
+      }),
+      prisma.dailyCheckIn.findMany({
+        where: { profileId: profile.id },
+        select: { date: true, stuckToFitnessPlan: true, stuckToMealPlan: true, bmrReadingKcal: true },
+      }),
+      prisma.mealPlanItemOverride.findMany({ where: { profileId: profile.id } }),
+      prisma.foodLog.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
+      prisma.mealPlanItemSwap.findMany({ where: { profileId: profile.id } }),
+      prisma.foodItemSwap.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
+      prisma.customFoodItem.findMany({ where: { profileId: profile.id } }),
+      prisma.mealPlanExtraItem.findMany({ where: { profileId: profile.id }, include: { customFoodItem: true } }),
+      prisma.foodItemExtra.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
+      prisma.foodItemRemoval.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
+    ]);
 
   const totalDays = checkIns.length;
   const fitnessSuccessDays = checkIns.filter((c) => c.stuckToFitnessPlan).length;
@@ -67,23 +70,29 @@ export default async function ProgressPage() {
     const dayPlan = mealPlanByDay.get(weekdayName(d));
     if (burned == null || !dayPlan) continue;
 
-    // That date's own swap layers on top of the standing weekday plan above,
-    // same as Home — otherwise a logged, swapped item wouldn't match any
-    // item in the plan and would silently drop out of the sum.
+    // That date's own swap/add/remove customizations layer on top of the
+    // standing weekday plan above, same as Home — otherwise a logged,
+    // swapped item wouldn't match any item in the plan and would silently
+    // drop out of the sum.
     const dateSwaps = buildFoodSwapMap(
       dayPlan.day,
       weekDateSwapRows.filter((r) => toDateInputValue(r.date) === d)
     );
+    const dateExtras = weekDateExtraRows.filter((r) => toDateInputValue(r.date) === d);
+    const dateRemovals = weekRemovalRows.filter((r) => toDateInputValue(r.date) === d);
     const foodLogMap = buildFoodLogMap(weekFoodLogRows.filter((r) => toDateInputValue(r.date) === d));
-    const mealGroups: { meal: MealKey; items: typeof dayPlan.breakfast }[] = [
-      { meal: "breakfast", items: applyFoodSwaps(dayPlan.breakfast, dayPlan.day, "breakfast", dateSwaps, overrides) },
-      { meal: "lunch", items: applyFoodSwaps(dayPlan.lunch, dayPlan.day, "lunch", dateSwaps, overrides) },
-      { meal: "dinner", items: applyFoodSwaps(dayPlan.dinner, dayPlan.day, "dinner", dateSwaps, overrides) },
-    ];
+    const mealGroups: { meal: MealKey; items: typeof dayPlan.breakfast }[] = (["breakfast", "lunch", "dinner"] as const).map((meal) => ({
+      meal,
+      items: applyDailyModifications(dayPlan[meal], meal, dayPlan.day, dateSwaps, overrides, customFoodItems, dateExtras, dateRemovals),
+    }));
     const eaten = sumLoggedMacros(getLoggedItems(mealGroups, foodLogMap));
-    if (eaten.itemsLogged === 0) continue;
 
-    weeklyDeficit += burned - eaten.calories;
+    // Added items have no separate "logged" state (see FoodItemExtra) — their amount always counts.
+    const addedItems = mealGroups.flatMap((g) => g.items.filter((it) => it.extraItemId));
+    const addedCalories = Math.round(addedItems.reduce((sum, it) => sum + it.proteinG * 4 + it.carbG * 4 + it.fatG * 9, 0));
+    if (eaten.itemsLogged === 0 && addedItems.length === 0) continue;
+
+    weeklyDeficit += burned - (eaten.calories + addedCalories);
     daysCounted++;
   }
 

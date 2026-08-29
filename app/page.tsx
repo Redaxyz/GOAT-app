@@ -4,7 +4,7 @@ import { submitCheckIn, markFoodLogComplete, clearFoodLogComplete } from "@/app/
 import { today, addDays, isSunday, weekdayName, dateOnly, formatDateLabel } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
 import { getFitnessData } from "@/lib/fitnessData";
-import { getMealPlan, buildOverrideMap, buildFoodSwapMap, buildMealPlanSwapMap, applyFoodSwaps, sumMacros, type MealKey } from "@/lib/nutrition";
+import { getMealPlan, buildOverrideMap, buildFoodSwapMap, buildMealPlanSwapMap, applyDailyModifications, sumMacros, type MealKey } from "@/lib/nutrition";
 import { foodLogKey } from "@/lib/foodLog";
 import Link from "next/link";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/app/components/icons";
@@ -84,6 +84,8 @@ async function TodaySections({ profileId }: { profileId: string }) {
     customFoodItems,
     foodLogComplete,
     extraItemRows,
+    dateExtraRows,
+    removalRows,
   ] = await Promise.all([
     prisma.dailyCheckIn.findUnique({ where: { profileId_date: { profileId, date: dateOnly(yesterday) } } }),
     getFitnessData(profileId),
@@ -95,6 +97,8 @@ async function TodaySections({ profileId }: { profileId: string }) {
     prisma.customFoodItem.findMany({ where: { profileId }, orderBy: { name: "asc" } }),
     prisma.dailyFoodLogComplete.findUnique({ where: { profileId_date: { profileId, date: dateOnly(todayStr) } } }),
     prisma.mealPlanExtraItem.findMany({ where: { profileId, day: todayWeekday }, include: { customFoodItem: true } }),
+    prisma.foodItemExtra.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
+    prisma.foodItemRemoval.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
   ]);
 
   const overrides = buildOverrideMap(overrideRows);
@@ -104,12 +108,19 @@ async function TodaySections({ profileId }: { profileId: string }) {
   const initialFoodLog: Record<string, number> = {};
   for (const row of foodLogRows) initialFoodLog[foodLogKey(row.meal as MealKey, row.groceryId)] = row.amountG;
 
-  // Today's own swap layers on top of the standing weekday plan above — e.g.
-  // eating pasta just today despite Tuesday's standing carb being rice.
+  // Today's own swap layers on top of the standing weekday plan above (e.g.
+  // eating pasta just today despite Tuesday's standing carb being rice), and
+  // every item is fully swappable/removable/addable — see makeFullySwappable.
   const dateSwaps = buildFoodSwapMap(todayWeekday, dateSwapRows);
-  const breakfast = todayPlan ? applyFoodSwaps(todayPlan.breakfast, todayWeekday, "breakfast", dateSwaps, overrides) : [];
-  const lunch = todayPlan ? applyFoodSwaps(todayPlan.lunch, todayWeekday, "lunch", dateSwaps, overrides) : [];
-  const dinner = todayPlan ? applyFoodSwaps(todayPlan.dinner, todayWeekday, "dinner", dateSwaps, overrides) : [];
+  const breakfast = todayPlan
+    ? applyDailyModifications(todayPlan.breakfast, "breakfast", todayWeekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
+    : [];
+  const lunch = todayPlan
+    ? applyDailyModifications(todayPlan.lunch, "lunch", todayWeekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
+    : [];
+  const dinner = todayPlan
+    ? applyDailyModifications(todayPlan.dinner, "dinner", todayWeekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
+    : [];
   const todayTotal = sumMacros([breakfast, lunch, dinner]);
 
   return (

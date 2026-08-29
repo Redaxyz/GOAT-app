@@ -50,6 +50,8 @@ model Profile {
   snackLogs            SnackLog[]
   foodLogCompletes     DailyFoodLogComplete[]
   mealPlanExtraItems   MealPlanExtraItem[]
+  foodItemExtras       FoodItemExtra[]
+  foodItemRemovals     FoodItemRemoval[]
 
   @@map("profiles")
 }
@@ -282,8 +284,9 @@ model FoodLog {
 // / alternatives in lib/nutrition.ts) for one specific date — e.g. lunch's
 // meat swapped from chicken thigh to salmon just for today. Distinct from
 // FoodLog: this records WHICH food fills a slot, not how much of it was
-// eaten. slot is a stable id ("yogurt" | "meat" | "carb"), independent of
-// which groceryId happens to be the day's default.
+// eaten. slot is a stable id — "yogurt" | "meat" | "carb" for the plan's
+// built-in slots, or (on Home, where every item is fully swappable — see
+// makeFullySwappable) the item's own default groceryId, self-referential.
 
 model FoodItemSwap {
   id        String   @id @default(cuid())
@@ -391,4 +394,48 @@ model MealPlanExtraItem {
 
   @@unique([profileId, day, meal, customFoodItemId])
   @@map("meal_plan_extra_items")
+}
+
+// ---- Nutrition: per-date extra items ---------------------------------------
+// Home's date-scoped counterpart to MealPlanExtraItem above — a food (built-in
+// catalog or a saved custom food; groceryId matches either) added as an extra
+// row to a specific meal on one specific date, not the standing weekly plan.
+// Its amountG is both the target and the logged amount (there's no separate
+// "plan baseline vs. actually eaten" distinction for something added ad hoc).
+
+model FoodItemExtra {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date      DateTime
+  meal      String
+  groceryId String
+  amountG   Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, date, meal, groceryId])
+  @@map("food_item_extras")
+}
+
+// ---- Nutrition: per-date item removals -------------------------------------
+// Hides one plan/swapped item from Home's view of a specific date's meal —
+// e.g. today's breakfast doesn't include toast. groceryId is whatever's
+// CURRENTLY shown in that row (its swapped identity if it's been swapped),
+// not necessarily the plan's original default. Doesn't apply to
+// FoodItemExtra rows — those are removed by deleting the row itself.
+
+model FoodItemRemoval {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date      DateTime
+  meal      String
+  groceryId String
+
+  createdAt DateTime @default(now())
+
+  @@unique([profileId, date, meal, groceryId])
+  @@map("food_item_removals")
 }

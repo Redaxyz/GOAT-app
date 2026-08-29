@@ -301,6 +301,74 @@ export async function setFoodItemSwap(date: string, meal: MealKey, slot: string,
   revalidatePath("/progress");
 }
 
+/** Adds any food (built-in or a saved custom food) as an extra row to one meal on a specific date — Home's per-date counterpart to addMealPlanExtraItem below (which is weekday-scoped and My-Foods-only). */
+export async function addFoodItemExtra(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const date = dateOnly(requireString(formData, "date"));
+  const meal = requireString(formData, "meal");
+  const groceryId = requireString(formData, "groceryId");
+  const amountG = Number(requireString(formData, "amountG"));
+  if (!Number.isFinite(amountG) || amountG < 0) throw new Error("Amount must be a non-negative number");
+
+  const customFoods = await prisma.customFoodItem.findMany({ where: { profileId: profile.id } });
+  if (!allFoodOptions(customFoods).some((o) => o.groceryId === groceryId)) throw new Error("Unknown food");
+
+  await prisma.foodItemExtra.upsert({
+    where: { profileId_date_meal_groceryId: { profileId: profile.id, date, meal, groceryId } },
+    update: { amountG },
+    create: { profileId: profile.id, date, meal, groceryId, amountG },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+/** Live amount edits on an already-added FoodItemExtra — called imperatively (like setFoodItemSwap), not through a plain form. */
+export async function updateFoodItemExtraAmount(id: string, amountG: number) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+  if (!Number.isFinite(amountG) || amountG < 0) throw new Error("Amount must be a non-negative number");
+
+  const existing = await prisma.foodItemExtra.findUnique({ where: { id } });
+  if (!existing || existing.profileId !== profile.id) throw new Error("Item not found");
+
+  await prisma.foodItemExtra.update({ where: { id }, data: { amountG } });
+
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+export async function deleteFoodItemExtra(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const id = requireString(formData, "id");
+  const existing = await prisma.foodItemExtra.findUnique({ where: { id } });
+  if (!existing || existing.profileId !== profile.id) throw new Error("Item not found");
+
+  await prisma.foodItemExtra.delete({ where: { id } });
+
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+/** Hides one plan/swapped item from a specific date's meal (the "X" on Home) — called imperatively, not through a form, since it's a one-click action rather than a dialog. groceryId is whatever's currently shown, i.e. after any swap. */
+export async function removeFoodItem(date: string, meal: MealKey, groceryId: string) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  await prisma.foodItemRemoval.upsert({
+    where: { profileId_date_meal_groceryId: { profileId: profile.id, date: dateOnly(date), meal, groceryId } },
+    update: {},
+    create: { profileId: profile.id, date: dateOnly(date), meal, groceryId },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
 /** Swaps one meal-slot's item for an alternative on the STANDING plan for a weekday going forward — the weekday counterpart to setFoodItemSwap below, so it feeds the grocery list and becomes that weekday's default everywhere. */
 export async function setMealPlanItemSwap(day: string, meal: MealKey, slot: string, groceryId: string) {
   const profile = await getActiveProfile();
