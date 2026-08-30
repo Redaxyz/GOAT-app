@@ -2,7 +2,8 @@
 
 import { useRef, useState, useTransition } from "react";
 import { selectProfile } from "@/app/actions";
-import { JACK_BLUE, REDA_GOLD } from "@/lib/theme";
+import { getDailyRedaColor, getDailyJackColor } from "@/lib/theme";
+import { today } from "@/lib/date";
 
 const TEETH = 18;
 const DEPTH = 1.6;
@@ -12,11 +13,6 @@ const REVEAL_MS = 650;
 
 type Side = "left" | "right";
 type Phase = "idle" | "grow" | "reveal";
-
-const PANEL: Record<Side, { bg: string; text: string; name: string }> = {
-  left: { bg: JACK_BLUE, text: REDA_GOLD, name: "Jack" },
-  right: { bg: REDA_GOLD, text: JACK_BLUE, name: "Reda" },
-};
 
 /** Maps a local coordinate (0 = this side's screen edge, 100 = the far screen edge) to a real x%. */
 function toX(u: number, side: Side) {
@@ -66,18 +62,18 @@ function useTweener() {
   return { run };
 }
 
-function NameLabel({ side, x }: { side: Side; x: number }) {
+function NameLabel({ x, color, name }: { x: number; color: string; name: string }) {
   return (
     <span
       className="absolute top-1/2 font-extrabold whitespace-nowrap"
       style={{
         left: `${x}%`,
         transform: "translate(-50%, -50%)",
-        color: PANEL[side].text,
+        color,
         fontSize: "clamp(2.5rem, 8vw, 6rem)",
       }}
     >
-      {PANEL[side].name}
+      {name}
     </span>
   );
 }
@@ -93,6 +89,15 @@ export default function LoginScreen({ initialShow }: { initialShow: boolean }) {
   const reveal = useTweener();
 
   if (!visible) return null;
+
+  // Recomputed per render (cheap) rather than at module load, so a tab left
+  // open across midnight still picks up the new day's colors on its next render.
+  const redaColor = getDailyRedaColor(today());
+  const jackColor = getDailyJackColor(today());
+  const panel: Record<Side, { bg: string; text: string; name: string }> = {
+    left: { bg: jackColor, text: redaColor, name: "Jack" },
+    right: { bg: redaColor, text: jackColor, name: "Reda" },
+  };
 
   function pick(chosen: Side) {
     if (phase !== "idle") return;
@@ -126,20 +131,20 @@ export default function LoginScreen({ initialShow }: { initialShow: boolean }) {
           <button
             key={s}
             type="button"
-            aria-label={`Continue as ${PANEL[s].name}`}
+            aria-label={`Continue as ${panel[s].name}`}
             onClick={() => pick(s)}
             disabled={!interactive}
             className="absolute inset-0 h-full w-full"
             style={{
               clipPath: clipPath(edge, straightEdge, s),
-              background: PANEL[s].bg,
+              background: panel[s].bg,
               zIndex: isPicked ? 2 : 1,
               cursor: interactive ? "pointer" : "default",
               pointerEvents: phase === "reveal" ? "none" : undefined,
               transition: "filter 150ms ease",
             }}
           >
-            <NameLabel side={s} x={toX(nameMidpoint, s)} />
+            <NameLabel x={toX(nameMidpoint, s)} color={panel[s].text} name={panel[s].name} />
           </button>
         );
       })}

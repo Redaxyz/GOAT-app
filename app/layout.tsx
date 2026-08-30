@@ -7,6 +7,7 @@ import BottomNav from "@/app/components/BottomNav";
 import LoginGate from "@/app/components/LoginGate";
 import { getActiveProfileSlug } from "@/lib/session";
 import { getThemeColors } from "@/lib/theme";
+import { today } from "@/lib/date";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,7 +34,7 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const slug = await getActiveProfileSlug();
-  const theme = getThemeColors(slug);
+  const theme = getThemeColors(slug, today());
   const themeStyle = { "--theme-own": theme.own, "--theme-accent": theme.accent } as CSSProperties;
   const mirrored = slug === "FRIEND";
 
