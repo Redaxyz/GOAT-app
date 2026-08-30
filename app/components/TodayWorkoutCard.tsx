@@ -1,20 +1,15 @@
+"use client";
+
+import { useState } from "react";
 import { submitLift, submitCardio, setScheduleOverride, clearScheduleOverride } from "@/app/actions";
-import { suggestNextLift, summarizeLiftSession, MAX_LIFT_SETS } from "@/lib/overload";
+import { suggestNextLift, summarizeLiftSession, MAX_LIFT_SETS, type LiftSuggestion } from "@/lib/overload";
 import { SCHEDULE_TYPE_LABEL, type ScheduleDayType } from "@/lib/schedule";
 import { formatDateLabel, dateOnly } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
-import type { LiftSetEntry } from "@/lib/types";
 import type { FitnessData } from "@/lib/fitnessData";
-import { resolveDayEntry } from "@/lib/fitnessData";
+import { resolveDayEntry } from "@/lib/fitnessView";
+import { liftSets, formatSetsLb } from "@/lib/liftFormat";
 import SubmitButton from "@/app/components/SubmitButton";
-
-export function liftSets(lift: { sets: unknown }): LiftSetEntry[] {
-  return lift.sets as LiftSetEntry[];
-}
-
-export function formatSetsLb(sets: LiftSetEntry[]): string {
-  return sets.map((s) => `${kgToLb(s.weightKg)}lb×${s.reps}`).join(", ");
-}
 
 /**
  * The "what's scheduled today, and let me log it right here" card — shared
@@ -213,36 +208,70 @@ export function LiftRow({
         </div>
       </div>
 
-      {logForm && dateStr && (
-        <form action={submitLift} className="mt-3">
-          <input type="hidden" name="date" value={dateStr} />
-          <input type="hidden" name="exerciseName" value={name} />
-          <div className="flex flex-col gap-2">
-            {Array.from({ length: MAX_LIFT_SETS }, (_, i) => i + 1).map((setNum) => (
-              <div key={setNum} className="flex items-end gap-2 flex-wrap">
-                <span className="text-[10px] font-bold opacity-40 uppercase tracking-wide w-10">Set {setNum}</span>
-                <InlineNumberField
-                  label="lb"
-                  name={`setWeightLb${setNum}`}
-                  step="0.5"
-                  required={setNum === 1}
-                  defaultValue={suggestion && setNum <= suggestion.sets ? suggestion.weightLb : undefined}
-                />
-                <InlineNumberField
-                  label="reps"
-                  name={`setReps${setNum}`}
-                  required={setNum === 1}
-                  defaultValue={suggestion && setNum <= suggestion.sets ? suggestion.reps : undefined}
-                />
-              </div>
-            ))}
-          </div>
-          <SubmitButton className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition mt-2">
-            Log
-          </SubmitButton>
-        </form>
-      )}
+      {logForm && dateStr && <LiftLogForm dateStr={dateStr} name={name} suggestion={suggestion} doneToday={doneToday} />}
     </div>
+  );
+}
+
+/**
+ * The set-logging form for one exercise — collapses to a persistent "Saved"
+ * once today's sets are in, so re-opening the app later shows at a glance
+ * what's already done vs. still pending, rather than an always-blank form
+ * that gives no indication either way. "Edit" reopens it to log again/fix
+ * a mistake. Mirrors YesterdayCard's collapse-after-submit pattern.
+ */
+function LiftLogForm({ dateStr, name, suggestion, doneToday }: { dateStr: string; name: string; suggestion: LiftSuggestion | null; doneToday: boolean }) {
+  const [expanded, setExpanded] = useState(!doneToday);
+
+  if (!expanded) {
+    return (
+      <div className="flex items-center gap-3 mt-3">
+        <span className="px-4 py-1.5 rounded-full bg-theme-accent/15 text-theme-accent text-sm font-extrabold">Saved ✓</span>
+        <button type="button" onClick={() => setExpanded(true)} className="text-sm font-bold opacity-50 hover:opacity-80 transition underline underline-offset-4">
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form action={submitLift} className="mt-3">
+      <input type="hidden" name="date" value={dateStr} />
+      <input type="hidden" name="exerciseName" value={name} />
+      <div className="flex flex-col gap-2">
+        {Array.from({ length: MAX_LIFT_SETS }, (_, i) => i + 1).map((setNum) => (
+          <div key={setNum} className="flex items-end gap-2 flex-wrap">
+            <span className="text-[10px] font-bold opacity-40 uppercase tracking-wide w-10">Set {setNum}</span>
+            <InlineNumberField
+              label="lb"
+              name={`setWeightLb${setNum}`}
+              step="0.5"
+              required={setNum === 1}
+              defaultValue={suggestion && setNum <= suggestion.sets ? suggestion.weightLb : undefined}
+            />
+            <InlineNumberField
+              label="reps"
+              name={`setReps${setNum}`}
+              required={setNum === 1}
+              defaultValue={suggestion && setNum <= suggestion.sets ? suggestion.reps : undefined}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-3 mt-2">
+        <SubmitButton
+          onSettled={() => setTimeout(() => setExpanded(false), 1500)}
+          className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition"
+        >
+          Log
+        </SubmitButton>
+        {doneToday && (
+          <button type="button" onClick={() => setExpanded(false)} className="text-sm font-bold opacity-50 hover:opacity-80 transition">
+            Cancel
+          </button>
+        )}
+      </div>
+    </form>
   );
 }
 
@@ -290,17 +319,57 @@ export function CardioRow({
       <div className="text-sm font-semibold opacity-50 mt-1">{suggestion.rationale}</div>
 
       {logForm && dateStr && cardioType && (
-        <form action={submitCardio} className="flex items-end gap-2 flex-wrap mt-3">
-          <input type="hidden" name="date" value={dateStr} />
-          <input type="hidden" name="type" value={cardioType} />
-          <InlineNumberField label={unit} name="distanceKm" step={unit === "m" ? "1" : "0.1"} defaultValue={suggestion.distanceKm} />
-          <InlineNumberField label="min" name="durationMin" step="1" required={false} />
-          <SubmitButton className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
-            Log
-          </SubmitButton>
-        </form>
+        <CardioLogForm dateStr={dateStr} cardioType={cardioType} unit={unit} suggestedDistance={suggestion.distanceKm} doneToday={doneToday} />
       )}
     </div>
+  );
+}
+
+/** The distance/duration logging form for one cardio type — collapses to a persistent "Saved" once today's session is in, same pattern as LiftLogForm above. */
+function CardioLogForm({
+  dateStr,
+  cardioType,
+  unit,
+  suggestedDistance,
+  doneToday,
+}: {
+  dateStr: string;
+  cardioType: "RUN" | "BIKE" | "ROW" | "SWIM";
+  unit: string;
+  suggestedDistance: number;
+  doneToday: boolean;
+}) {
+  const [expanded, setExpanded] = useState(!doneToday);
+
+  if (!expanded) {
+    return (
+      <div className="flex items-center gap-3 mt-3">
+        <span className="px-4 py-1.5 rounded-full bg-theme-accent/15 text-theme-accent text-sm font-extrabold">Saved ✓</span>
+        <button type="button" onClick={() => setExpanded(true)} className="text-sm font-bold opacity-50 hover:opacity-80 transition underline underline-offset-4">
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form action={submitCardio} className="flex items-end gap-2 flex-wrap mt-3">
+      <input type="hidden" name="date" value={dateStr} />
+      <input type="hidden" name="type" value={cardioType} />
+      <InlineNumberField label={unit} name="distanceKm" step={unit === "m" ? "1" : "0.1"} defaultValue={suggestedDistance} />
+      <InlineNumberField label="min" name="durationMin" step="1" required={false} />
+      <SubmitButton
+        onSettled={() => setTimeout(() => setExpanded(false), 1500)}
+        className="px-4 py-2 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition"
+      >
+        Log
+      </SubmitButton>
+      {doneToday && (
+        <button type="button" onClick={() => setExpanded(false)} className="text-sm font-bold opacity-50 hover:opacity-80 transition">
+          Cancel
+        </button>
+      )}
+    </form>
   );
 }
 

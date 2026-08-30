@@ -2,7 +2,9 @@ import Link from "next/link";
 import { requireActiveProfile } from "@/lib/session";
 import { submitLift, updateWorkoutDayPlans, addWorkoutDay, updateScheduleTemplate } from "@/app/actions";
 import { MAX_LIFT_SETS } from "@/lib/overload";
-import { getFitnessData, resolveDayEntry } from "@/lib/fitnessData";
+import { getFitnessData } from "@/lib/fitnessData";
+import { resolveDayEntry } from "@/lib/fitnessView";
+import { liftSets, formatSetsLb } from "@/lib/liftFormat";
 import {
   effectiveEntryForDate,
   cycleSlotLabel,
@@ -16,7 +18,7 @@ import { PencilIcon } from "@/app/components/icons";
 import Row from "@/app/components/Row";
 import SubmitButton from "@/app/components/SubmitButton";
 import MonthCalendar, { type CalendarCell } from "@/app/components/MonthCalendar";
-import TodayWorkoutCard, { LiftRow, CardioRow, liftSets, formatSetsLb } from "@/app/components/TodayWorkoutCard";
+import TodayWorkoutCard, { LiftRow, CardioRow } from "@/app/components/TodayWorkoutCard";
 import LogCardioForm from "@/app/components/LogCardioForm";
 
 const CARDIO_TYPE_LABEL: Record<CardioType, string> = { RUN: "Run", BIKE: "Bike", ROW: "Row", SWIM: "Swim" };

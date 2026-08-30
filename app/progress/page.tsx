@@ -55,13 +55,15 @@ export default async function ProgressPage() {
 
   // Weekly deficit: burned (from check-ins) minus eaten (from the food log),
   // summed Monday->today, resetting each Monday. A day only counts once it
-  // has both a burned reading and at least one logged food item.
+  // has both a burned reading and at least one logged food item, and only
+  // if that day wasn't marked "didn't stick to the meal plan" — see below.
   const overrides = buildOverrideMap(overrideRows);
   const weekdaySwaps = buildMealPlanSwapMap(weekdaySwapRows);
   const mealPlanByDay = new Map<string, ReturnType<typeof getMealPlan>[number]>(
     getMealPlan(overrides, weekdaySwaps, customFoodItems, extraItemRows).map((d) => [d.day, d])
   );
   const burnedByDate = new Map(checkIns.map((c) => [toDateInputValue(c.date), c.bmrReadingKcal]));
+  const stuckToMealPlanByDate = new Map(checkIns.map((c) => [toDateInputValue(c.date), c.stuckToMealPlan]));
 
   let weeklyDeficit = 0;
   let daysCounted = 0;
@@ -69,6 +71,11 @@ export default async function ProgressPage() {
     const burned = burnedByDate.get(d);
     const dayPlan = mealPlanByDay.get(weekdayName(d));
     if (burned == null || !dayPlan) continue;
+    // A day marked "didn't stick to the meal plan" means that day's logged
+    // food isn't a reliable read of what was actually eaten — voiding both
+    // sides (burned and eaten) rather than just eaten, since a deficit built
+    // from only one real number isn't meaningful either.
+    if (stuckToMealPlanByDate.get(d) === false) continue;
 
     // That date's own swap/add/remove customizations layer on top of the
     // standing weekday plan above, same as Home — otherwise a logged,
