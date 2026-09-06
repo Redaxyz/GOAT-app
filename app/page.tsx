@@ -6,6 +6,7 @@ import { kgToLb } from "@/lib/units";
 import { getFitnessData } from "@/lib/fitnessData";
 import { getMealPlan, buildOverrideMap, buildFoodSwapMap, buildMealPlanSwapMap, applyDailyModifications, sumMacros, type MealKey } from "@/lib/nutrition";
 import { foodLogKey } from "@/lib/foodLog";
+import type { ProfileSlug } from "@/lib/types";
 import Link from "next/link";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/app/components/icons";
 import { DisplayRow, NumberRow, YesNoRow, NotesRow, NotesDisplayRow } from "@/app/components/CheckInFields";
@@ -58,7 +59,7 @@ export default async function HomePage({
       </div>
 
       {isToday ? (
-        <TodaySections profileId={profile.id} />
+        <TodaySections profileId={profile.id} profileSlug={profile.slug as ProfileSlug} />
       ) : (
         <PastDaySections profileId={profile.id} selectedDate={selectedDate} edit={edit === "1"} />
       )}
@@ -67,7 +68,7 @@ export default async function HomePage({
 }
 
 /** The default view: a quick recap of yesterday, today's workout, and today's food log — all actionable right from Home. */
-async function TodaySections({ profileId }: { profileId: string }) {
+async function TodaySections({ profileId, profileSlug }: { profileId: string; profileSlug: ProfileSlug }) {
   const todayStr = today();
   const yesterday = addDays(todayStr, -1);
 
@@ -88,7 +89,7 @@ async function TodaySections({ profileId }: { profileId: string }) {
     removalRows,
   ] = await Promise.all([
     prisma.dailyCheckIn.findUnique({ where: { profileId_date: { profileId, date: dateOnly(yesterday) } } }),
-    getFitnessData(profileId),
+    getFitnessData(profileId, profileSlug),
     prisma.mealPlanItemOverride.findMany({ where: { profileId } }),
     prisma.foodLog.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
     prisma.foodItemSwap.findMany({ where: { profileId, date: dateOnly(todayStr) } }),

@@ -2,33 +2,55 @@
 
 import { useState } from "react";
 import { submitLift, submitCardio, setScheduleOverride, clearScheduleOverride } from "@/app/actions";
-import { suggestNextLift, summarizeLiftSession, MAX_LIFT_SETS, type LiftSuggestion } from "@/lib/overload";
-import { SCHEDULE_TYPE_LABEL, type ScheduleDayType } from "@/lib/schedule";
+import { suggestNextLift, suggestNextAbs, summarizeLiftSession, MAX_LIFT_SETS, type LiftSuggestion } from "@/lib/overload";
+import { SCHEDULE_TYPE_LABEL, RUN_VARIANT_LABEL, type ScheduleDayType } from "@/lib/schedule";
 import { formatDateLabel, dateOnly } from "@/lib/date";
 import { kgToLb } from "@/lib/units";
 import type { FitnessData } from "@/lib/fitnessData";
-import { resolveDayEntry } from "@/lib/fitnessView";
+import { resolveDayEntries, type DayEntryInfo } from "@/lib/fitnessView";
 import { liftSets, formatSetsLb } from "@/lib/liftFormat";
 import SubmitButton from "@/app/components/SubmitButton";
 
 /**
  * The "what's scheduled today, and let me log it right here" card — shared
  * between Home (today only) and the Fitness tab's own Today card, so the
- * two never drift apart.
+ * two never drift apart. Renders a second activity block, with its own log
+ * form, when the calendar's "+" has added a second workout for the date.
  */
 export default function TodayWorkoutCard({ data, dateStr, label = "Today" }: { data: FitnessData; dateStr: string; label?: string }) {
-  const info = resolveDayEntry(data, dateStr);
+  const [primary, secondary] = resolveDayEntries(data, dateStr);
 
   return (
     <div className="border-2 border-theme-accent rounded-3xl p-5 mb-8 bg-theme-accent/5">
       <div className="text-xs font-bold uppercase tracking-wide text-theme-accent mb-1">
         {label} — {formatDateLabel(dateOnly(dateStr))}
       </div>
+
+      <ActivityBlock data={data} info={primary} dateStr={dateStr} />
+
+      <SwapDayControls dateStr={dateStr} activeType={primary.entry.type} isOverridden={primary.override != null} />
+
+      {secondary && (
+        <>
+          <div className="text-xs font-bold uppercase tracking-wide text-theme-accent mt-6 mb-1">Second workout</div>
+          <ActivityBlock data={data} info={secondary} dateStr={dateStr} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** One scheduled activity's title + loggable content — the lift list for a gym day, or a single CardioRow for run/bike/row/swim. Used once for the day's primary entry, and again for its second workout if one was added via the calendar's "+". */
+function ActivityBlock({ data, info, dateStr }: { data: FitnessData; info: DayEntryInfo; dateStr: string }) {
+  return (
+    <>
       <h2 className="text-xl font-extrabold mb-1">
         {info.liftDay
           ? info.liftDay.label
           : info.isRunDay
-          ? "Run day"
+          ? info.runVariant
+            ? RUN_VARIANT_LABEL[info.runVariant]
+            : "Run day"
           : info.isBikeDay
           ? "Bike day"
           : info.isRowDay
@@ -41,8 +63,6 @@ export default function TodayWorkoutCard({ data, dateStr, label = "Today" }: { d
           ? info.entry.customLabel || "Other"
           : "Rest day"}
       </h2>
-
-      <SwapDayControls dateStr={dateStr} activeType={info.entry.type} isOverridden={info.override != null} />
 
       {info.liftDay &&
         info.liftDay.exercises.map((name) => (
@@ -62,11 +82,11 @@ export default function TodayWorkoutCard({ data, dateStr, label = "Today" }: { d
 
       {info.isRunDay && (
         <CardioRow
-          label="Run"
+          label={info.runVariant ? RUN_VARIANT_LABEL[info.runVariant] : "Run"}
           isToday
           doneToday={info.ranToday}
           lastLog={data.latestRun}
-          suggestion={data.runSuggestion}
+          suggestion={info.runVariant === "LONG" ? data.longRunSuggestion : data.runSuggestion}
           logForm
           dateStr={dateStr}
           cardioType="RUN"
@@ -119,7 +139,7 @@ export default function TodayWorkoutCard({ data, dateStr, label = "Today" }: { d
         !info.isSwimDay &&
         !info.isGenericGymDay &&
         info.entry.type !== "OTHER" && <p className="text-base font-bold opacity-60 mt-2">Rest day.</p>}
-    </div>
+    </>
   );
 }
 
@@ -174,12 +194,8 @@ export function LiftRow({
   dateStr?: string;
 }) {
   const lastSets = lastLog ? liftSets(lastLog) : null;
-  const suggestion = lastSets
-    ? suggestNextLift(
-        summarizeLiftSession(lastSets.map((s) => ({ weightLb: kgToLb(s.weightKg), reps: s.reps }))),
-        incrementLb
-      )
-    : null;
+  const lastSummary = lastSets ? summarizeLiftSession(lastSets.map((s) => ({ weightLb: kgToLb(s.weightKg), reps: s.reps }))) : null;
+  const suggestion = name === "Abs" ? suggestNextAbs(lastSummary) : lastSummary ? suggestNextLift(lastSummary, incrementLb) : null;
   // Once today's set is already logged, the suggestion is for the *next*
   // session — showing it as "today's target" would misleadingly imply
   // today's set still needs to happen.

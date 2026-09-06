@@ -1,20 +1,22 @@
 import { prisma } from "@/lib/prisma";
 import { suggestNextRun, suggestNextBike, suggestNextRow, suggestNextSwim } from "@/lib/overload";
-import { resolveLiftDays, resolveCycleTemplate, type ScheduleDayType, type ScheduleOverrideInfo } from "@/lib/schedule";
+import { resolveLiftDays, resolveCycleTemplate, runVariantForDate, type ScheduleDayType, type ScheduleOverrideInfo } from "@/lib/schedule";
 import { toDateInputValue } from "@/lib/date";
+import type { ProfileSlug } from "@/lib/types";
 
 /**
  * Everything both the Home and Fitness pages need to render a "today's
  * workout" card and (on Fitness) the full suggestions/history lists —
  * fetched once here so neither page re-derives the same maps independently.
  */
-export async function getFitnessData(profileId: string) {
-  const [lifts, cardio, dayPlanRows, incrementRows, scheduleOverrideRows, scheduleTemplateRows] = await Promise.all([
+export async function getFitnessData(profileId: string, profileSlug: ProfileSlug) {
+  const [lifts, cardio, dayPlanRows, incrementRows, scheduleOverrideRows, scheduleExtraRows, scheduleTemplateRows] = await Promise.all([
     prisma.liftLog.findMany({ where: { profileId }, orderBy: { date: "desc" } }),
     prisma.cardioLog.findMany({ where: { profileId }, orderBy: { date: "desc" } }),
     prisma.workoutDayPlan.findMany({ where: { profileId } }),
     prisma.exerciseIncrement.findMany({ where: { profileId } }),
     prisma.scheduleOverride.findMany({ where: { profileId } }),
+    prisma.scheduleExtra.findMany({ where: { profileId } }),
     prisma.scheduleTemplate.findMany({ where: { profileId } }),
   ]);
 
@@ -22,7 +24,22 @@ export async function getFitnessData(profileId: string) {
 
   const scheduleOverrideByDate = new Map<string, ScheduleOverrideInfo>();
   for (const row of scheduleOverrideRows) {
-    scheduleOverrideByDate.set(toDateInputValue(row.date), { type: row.dayType as ScheduleDayType, customLabel: row.customLabel });
+    scheduleOverrideByDate.set(toDateInputValue(row.date), {
+      type: row.dayType as ScheduleDayType,
+      customLabel: row.customLabel,
+      dayKey: row.dayKey,
+      runVariant: row.runVariant as ScheduleOverrideInfo["runVariant"],
+    });
+  }
+
+  const scheduleExtraByDate = new Map<string, ScheduleOverrideInfo>();
+  for (const row of scheduleExtraRows) {
+    scheduleExtraByDate.set(toDateInputValue(row.date), {
+      type: row.dayType as ScheduleDayType,
+      customLabel: row.customLabel,
+      dayKey: row.dayKey,
+      runVariant: row.runVariant as ScheduleOverrideInfo["runVariant"],
+    });
   }
 
   const latestByExercise = new Map<string, (typeof lifts)[number]>();
@@ -30,19 +47,32 @@ export async function getFitnessData(profileId: string) {
     if (!latestByExercise.has(lift.exerciseName)) latestByExercise.set(lift.exerciseName, lift);
   }
 
+  const cycleTemplate = resolveCycleTemplate(scheduleTemplateRows);
+
   const latestRun = cardio.find((c) => c.type === "RUN") ?? null;
+  // Long-run distance escalates off the *biggest* recent long run, not just
+  // whichever one happened most recently — an easier/shorter long-run day
+  // (cut short for time, weather, etc.) shouldn't drag the target back down.
+  const longRuns = cardio.filter(
+    (c) =>
+      c.type === "RUN" &&
+      runVariantForDate(toDateInputValue(c.date), cycleTemplate, scheduleOverrideByDate, scheduleExtraByDate, profileSlug) === "LONG"
+  );
+  const latestLongRun = longRuns.length > 0 ? longRuns.reduce((best, cur) => (cur.distanceKm > best.distanceKm ? cur : best)) : null;
   const bikeLogs = cardio.filter((c) => c.type === "BIKE");
   const latestBike = bikeLogs[0] ?? null;
   const latestRow = cardio.find((c) => c.type === "ROW") ?? null;
   const latestSwim = cardio.find((c) => c.type === "SWIM") ?? null;
 
   return {
+    profileSlug,
     lifts,
     cardio,
     liftDays: resolveLiftDays(dayPlanRows),
-    cycleTemplate: resolveCycleTemplate(scheduleTemplateRows),
+    cycleTemplate,
     incrementByExercise,
     scheduleOverrideByDate,
+    scheduleExtraByDate,
     latestByExercise,
     latestRun,
     bikeLogs,
@@ -50,6 +80,7 @@ export async function getFitnessData(profileId: string) {
     latestRow,
     latestSwim,
     runSuggestion: suggestNextRun(latestRun),
+    longRunSuggestion: suggestNextRun(latestLongRun),
     bikeSuggestion: suggestNextBike(bikeLogs),
     rowSuggestion: suggestNextRow(latestRow),
     swimSuggestion: suggestNextSwim(latestSwim),

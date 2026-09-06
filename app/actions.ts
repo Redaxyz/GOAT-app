@@ -26,6 +26,11 @@ function optionalNumber(formData: FormData, key: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function optionalString(formData: FormData, key: string): string | null {
+  const value = formData.get(key);
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 export async function selectProfile(slug: ProfileSlug) {
   await ensureProfilesSeeded();
   await setActiveProfileCookie(slug);
@@ -188,7 +193,13 @@ export async function submitCardio(formData: FormData) {
   revalidatePath("/fitness");
 }
 
-/** Swap a specific date's schedule type (gym/run/bike/rest/other) on the fly. customLabel only applies when dayType is "OTHER". */
+/**
+ * Swap a specific date's schedule type (gym/run/bike/row/swim/rest/other) on
+ * the fly. dayKey picks a specific lift day when dayType is "GYM"; runVariant
+ * picks long/short when dayType is "RUN" — both optional (left unset, GYM/RUN
+ * fall back to whatever the template already had for that date). customLabel
+ * only applies when dayType is "OTHER".
+ */
 export async function setScheduleOverride(formData: FormData) {
   const profile = await getActiveProfile();
   if (!profile) throw new Error("No active profile");
@@ -196,11 +207,13 @@ export async function setScheduleOverride(formData: FormData) {
   const date = dateOnly(requireString(formData, "date"));
   const dayType = requireString(formData, "dayType") as ScheduleDayType;
   const customLabel = dayType === "OTHER" ? requireString(formData, "customLabel") : null;
+  const dayKey = dayType === "GYM" ? optionalString(formData, "dayKey") : null;
+  const runVariant = dayType === "RUN" ? optionalString(formData, "runVariant") : null;
 
   await prisma.scheduleOverride.upsert({
     where: { profileId_date: { profileId: profile.id, date } },
-    update: { dayType, customLabel },
-    create: { profileId: profile.id, date, dayType, customLabel },
+    update: { dayType, customLabel, dayKey, runVariant },
+    create: { profileId: profile.id, date, dayType, customLabel, dayKey, runVariant },
   });
 
   revalidatePath("/fitness");
@@ -215,6 +228,40 @@ export async function clearScheduleOverride(formData: FormData) {
   const date = dateOnly(requireString(formData, "date"));
 
   await prisma.scheduleOverride.deleteMany({ where: { profileId: profile.id, date } });
+
+  revalidatePath("/fitness");
+  revalidatePath("/");
+}
+
+/** Add (or replace) a second, additive workout for a date — e.g. a bike ride on top of that day's already-scheduled lift day. Fully explicit: dayKey is required for GYM, runVariant for RUN, since there's no rotation to fall back to. */
+export async function setScheduleExtra(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const date = dateOnly(requireString(formData, "date"));
+  const dayType = requireString(formData, "dayType") as ScheduleDayType;
+  const customLabel = dayType === "OTHER" ? requireString(formData, "customLabel") : null;
+  const dayKey = dayType === "GYM" ? optionalString(formData, "dayKey") : null;
+  const runVariant = dayType === "RUN" ? optionalString(formData, "runVariant") : null;
+
+  await prisma.scheduleExtra.upsert({
+    where: { profileId_date: { profileId: profile.id, date } },
+    update: { dayType, customLabel, dayKey, runVariant },
+    create: { profileId: profile.id, date, dayType, customLabel, dayKey, runVariant },
+  });
+
+  revalidatePath("/fitness");
+  revalidatePath("/");
+}
+
+/** Remove a date's second workout. */
+export async function clearScheduleExtra(formData: FormData) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  const date = dateOnly(requireString(formData, "date"));
+
+  await prisma.scheduleExtra.deleteMany({ where: { profileId: profile.id, date } });
 
   revalidatePath("/fitness");
   revalidatePath("/");

@@ -4,16 +4,19 @@ import { submitLift, updateWorkoutDayPlans, addWorkoutDay, updateScheduleTemplat
 import { MAX_LIFT_SETS } from "@/lib/overload";
 import { getFitnessData } from "@/lib/fitnessData";
 import { resolveDayEntry } from "@/lib/fitnessView";
-import { liftSets, formatSetsLb } from "@/lib/liftFormat";
+import { liftSets, formatSetsLb, liftDayAbbr } from "@/lib/liftFormat";
 import {
   effectiveEntryForDate,
+  extraEntryForDate,
   cycleSlotLabel,
   SCHEDULE_TYPE_LABEL,
+  RUN_VARIANT_LABEL,
   type LiftDayDef,
   type ScheduleDayType,
+  type ScheduleEntry,
 } from "@/lib/schedule";
 import { today, formatDateLabel, toDateInputValue, dateOnly, addDays } from "@/lib/date";
-import type { CardioType } from "@/lib/types";
+import type { CardioType, ProfileSlug } from "@/lib/types";
 import { PencilIcon } from "@/app/components/icons";
 import Row from "@/app/components/Row";
 import SubmitButton from "@/app/components/SubmitButton";
@@ -27,7 +30,7 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   const profile = await requireActiveProfile();
   const { edit } = await searchParams;
 
-  const data = await getFitnessData(profile.id);
+  const data = await getFitnessData(profile.id, profile.slug as ProfileSlug);
 
   if (edit === "1") {
     return <EditView liftDays={data.liftDays} cycleTemplate={data.cycleTemplate} />;
@@ -44,17 +47,62 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
   const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const firstOfMonthStr = `${year}-${String(month + 1).padStart(2, "0")}-01`;
   const leadingBlanks = dateOnly(firstOfMonthStr).getUTCDay();
+  // Shared by primary and secondary calendar entries — which lift day (if
+  // any) an entry resolves to, and its display label (a specific lift day's
+  // full name, a run variant's label with the projected long-run distance,
+  // or whatever custom text an "OTHER" entry carries).
+  const describeEntry = (entry: ScheduleEntry): { liftDay: LiftDayDef | null; label: string | null } => {
+    const liftDay = entry.type === "GYM" && entry.dayKey ? data.liftDays.find((d) => d.dayKey === entry.dayKey) ?? null : null;
+    const label =
+      entry.type === "RUN" && entry.runVariant
+        ? entry.runVariant === "LONG"
+          ? `${RUN_VARIANT_LABEL.LONG} — ${data.longRunSuggestion.distanceKm}km`
+          : RUN_VARIANT_LABEL[entry.runVariant]
+        : liftDay
+        ? liftDay.label
+        : entry.customLabel ?? null;
+    return { liftDay, label };
+  };
+
   const calendarCells: CalendarCell[] = Array.from({ length: daysInMonth }, (_, i) => {
     const date = addDays(firstOfMonthStr, i);
+    const entry = effectiveEntryForDate(date, data.liftDays, data.cycleTemplate, data.scheduleOverrideByDate, data.profileSlug);
     const override = data.scheduleOverrideByDate.get(date) ?? null;
-    const entry = effectiveEntryForDate(date, override, data.liftDays, data.cycleTemplate);
+    const primary = describeEntry(entry);
+    // Short runs get a small "(s)" marker in the calendar; long runs show the
+    // actual projected distance (the same +0.5km-off-the-last-long-run value
+    // as the Today card's target); gym days show which specific lift day it
+    // is (e.g. "G - F2") instead of a plain "Gym" abbreviation.
+    const note =
+      entry.type === "RUN" && entry.runVariant === "SHORT"
+        ? "R(s)"
+        : entry.type === "RUN" && entry.runVariant === "LONG"
+        ? `${data.longRunSuggestion.distanceKm}km`
+        : primary.liftDay
+        ? `G - ${liftDayAbbr(primary.liftDay.label)}`
+        : null;
+
+    const extraEntry = extraEntryForDate(date, data.scheduleExtraByDate);
+    const secondary = extraEntry
+      ? {
+          type: extraEntry.type,
+          dayKey: extraEntry.dayKey ?? null,
+          runVariant: extraEntry.runVariant ?? null,
+          label: describeEntry(extraEntry).label || SCHEDULE_TYPE_LABEL[extraEntry.type],
+        }
+      : null;
+
     return {
       date,
       day: i + 1,
       type: entry.type,
-      customLabel: entry.customLabel ?? null,
+      dayKey: entry.dayKey ?? null,
+      runVariant: entry.runVariant ?? null,
+      customLabel: primary.label,
+      note,
       isToday: date === todayStr,
       isOverridden: override != null,
+      secondary,
     };
   });
   const monthLabel = calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
@@ -74,7 +122,7 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
           </Link>
         </div>
 
-        <MonthCalendar monthLabel={monthLabel} cells={calendarCells} leadingBlanks={leadingBlanks} todayStr={todayStr} />
+        <MonthCalendar monthLabel={monthLabel} cells={calendarCells} leadingBlanks={leadingBlanks} todayStr={todayStr} liftDays={data.liftDays} />
 
         <TodayWorkoutCard data={data} dateStr={todayStr} />
 
@@ -242,8 +290,9 @@ function EditView({ liftDays, cycleTemplate }: { liftDays: LiftDayDef[]; cycleTe
       <div>
         <h2 className="text-lg font-extrabold mb-1">Two-week calendar</h2>
         <p className="text-xs font-semibold opacity-60 mb-4">
-          Rearrange which days are gym/run/bike/rest. Which specific gym-day variant lands on a given gym slot still
-          rotates automatically through your workout days below.
+          Rearrange which days are gym/run/bike. Which specific gym-day variant (and long run vs. 5k pace) lands on a
+          given slot still rotates automatically, continuing on from the previous cycle. Rest is a single floating day
+          per cycle, taken via the Rest button on whichever date you want it — not set here.
         </p>
         <form action={updateScheduleTemplate} className="space-y-2">
           {cycleTemplate.map((type, slotIndex) => (
@@ -257,9 +306,11 @@ function EditView({ liftDays, cycleTemplate }: { liftDays: LiftDayDef[]; cycleTe
                 defaultValue={type}
                 className="text-right text-base font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
               >
-                {/* "Other" is per-date only (see the calendar above) — not valid for the recurring template. */}
+                {/* "Other" is per-date only (see the calendar above) — not valid for the recurring template.
+                    "Rest" is a floating single day per cycle now, taken via the swap-day Rest button rather
+                    than pinned to a fixed slot here (see findCycleRestSlot in lib/schedule.ts). */}
                 {(Object.keys(SCHEDULE_TYPE_LABEL) as ScheduleDayType[])
-                  .filter((t) => t !== "OTHER")
+                  .filter((t) => t !== "OTHER" && t !== "REST")
                   .map((t) => (
                     <option key={t} value={t}>
                       {SCHEDULE_TYPE_LABEL[t]}

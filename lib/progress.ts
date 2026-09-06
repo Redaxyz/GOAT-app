@@ -1,4 +1,43 @@
+import { kgToLb } from "@/lib/units";
+import { toDateInputValue } from "@/lib/date";
+import { liftSets } from "@/lib/liftFormat";
+import type { LiftSetEntry } from "@/lib/types";
+
 export type WeightPoint = { date: Date; weightKg: number };
+
+export type CardioEventPoint = {
+  id: string;
+  date: Date;
+  distanceKm: number;
+  durationMin: number | null;
+  paceMinPerKm: number | null;
+};
+
+/** One data point per logged cardio session, with pace derived from distance/duration when a duration was logged. */
+export function buildCardioPoints(logs: { id: string; date: Date; distanceKm: number; durationMin: number | null }[]): CardioEventPoint[] {
+  return logs.map((l) => ({
+    id: l.id,
+    date: l.date,
+    distanceKm: l.distanceKm,
+    durationMin: l.durationMin,
+    paceMinPerKm: l.durationMin != null && l.distanceKm > 0 ? Math.round((l.durationMin / l.distanceKm) * 100) / 100 : null,
+  }));
+}
+
+export type GymDayVolume = { date: Date; totalWeightLb: number };
+
+/** Total weight moved (sum of weight × reps across every set of every exercise) for each date a lift was logged, most recent first. */
+export function buildGymDayVolumes(lifts: { date: Date; sets: unknown }[]): GymDayVolume[] {
+  const byDate = new Map<string, GymDayVolume>();
+  for (const lift of lifts) {
+    const key = toDateInputValue(lift.date);
+    const volume = liftSets(lift).reduce((sum: number, s: LiftSetEntry) => sum + kgToLb(s.weightKg) * s.reps, 0);
+    const existing = byDate.get(key);
+    if (existing) existing.totalWeightLb += volume;
+    else byDate.set(key, { date: lift.date, totalWeightLb: volume });
+  }
+  return Array.from(byDate.values()).sort((a, b) => b.date.getTime() - a.date.getTime());
+}
 
 export type PaceResult = {
   daysRemaining: number | null;

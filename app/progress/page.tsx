@@ -1,12 +1,13 @@
 import { requireActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { submitWeight, updateProfileSettings } from "@/app/actions";
-import { computePace } from "@/lib/progress";
-import { today, toDateInputValue, addDays, daysBetween, mondayOfWeek, weekdayName, dateOnly } from "@/lib/date";
-import { cmToFeetInches, kgToLb } from "@/lib/units";
+import { computePace, buildCardioPoints, buildGymDayVolumes } from "@/lib/progress";
+import { today, toDateInputValue, addDays, daysBetween, mondayOfWeek, weekdayName, dateOnly, formatDateLabel } from "@/lib/date";
+import { cmToFeetInches, kgToLb, formatPace } from "@/lib/units";
 import { getMealPlan, buildOverrideMap, buildMealPlanSwapMap, buildFoodSwapMap, applyDailyModifications, type MealKey } from "@/lib/nutrition";
 import { buildFoodLogMap, getLoggedItems, sumLoggedMacros } from "@/lib/foodLog";
 import WeightChart from "@/app/components/WeightChart";
+import CardioChart from "@/app/components/CardioChart";
 import BmiCalculator from "@/app/components/BmiCalculator";
 import Row from "@/app/components/Row";
 import SubmitButton from "@/app/components/SubmitButton";
@@ -21,25 +22,43 @@ export default async function ProgressPage() {
   const todayStr = today();
   const monday = mondayOfWeek(todayStr);
 
-  const [logs, checkIns, overrideRows, weekFoodLogRows, weekdaySwapRows, weekDateSwapRows, customFoodItems, extraItemRows, weekDateExtraRows, weekRemovalRows] =
-    await Promise.all([
-      prisma.weightLog.findMany({
-        where: { profileId: profile.id },
-        orderBy: { date: "asc" },
-      }),
-      prisma.dailyCheckIn.findMany({
-        where: { profileId: profile.id },
-        select: { date: true, stuckToFitnessPlan: true, stuckToMealPlan: true, bmrReadingKcal: true },
-      }),
-      prisma.mealPlanItemOverride.findMany({ where: { profileId: profile.id } }),
-      prisma.foodLog.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
-      prisma.mealPlanItemSwap.findMany({ where: { profileId: profile.id } }),
-      prisma.foodItemSwap.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
-      prisma.customFoodItem.findMany({ where: { profileId: profile.id } }),
-      prisma.mealPlanExtraItem.findMany({ where: { profileId: profile.id }, include: { customFoodItem: true } }),
-      prisma.foodItemExtra.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
-      prisma.foodItemRemoval.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
-    ]);
+  const [
+    logs,
+    checkIns,
+    overrideRows,
+    weekFoodLogRows,
+    weekdaySwapRows,
+    weekDateSwapRows,
+    customFoodItems,
+    extraItemRows,
+    weekDateExtraRows,
+    weekRemovalRows,
+    lifts,
+    cardio,
+  ] = await Promise.all([
+    prisma.weightLog.findMany({
+      where: { profileId: profile.id },
+      orderBy: { date: "asc" },
+    }),
+    prisma.dailyCheckIn.findMany({
+      where: { profileId: profile.id },
+      select: { date: true, stuckToFitnessPlan: true, stuckToMealPlan: true, bmrReadingKcal: true },
+    }),
+    prisma.mealPlanItemOverride.findMany({ where: { profileId: profile.id } }),
+    prisma.foodLog.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
+    prisma.mealPlanItemSwap.findMany({ where: { profileId: profile.id } }),
+    prisma.foodItemSwap.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
+    prisma.customFoodItem.findMany({ where: { profileId: profile.id } }),
+    prisma.mealPlanExtraItem.findMany({ where: { profileId: profile.id }, include: { customFoodItem: true } }),
+    prisma.foodItemExtra.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
+    prisma.foodItemRemoval.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
+    prisma.liftLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
+    prisma.cardioLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
+  ]);
+
+  const gymDayVolumes = buildGymDayVolumes(lifts);
+  const runPoints = buildCardioPoints(cardio.filter((c) => c.type === "RUN"));
+  const bikePoints = buildCardioPoints(cardio.filter((c) => c.type === "BIKE"));
 
   const totalDays = checkIns.length;
   const fitnessSuccessDays = checkIns.filter((c) => c.stuckToFitnessPlan).length;
@@ -282,6 +301,61 @@ export default async function ProgressPage() {
             Save goal settings
           </SubmitButton>
         </form>
+      </section>
+
+      <section>
+        <h2 className="text-lg font-extrabold mb-3">Activity totals</h2>
+        <div className="grid grid-cols-3 gap-y-4">
+          <Stat label="Gym sessions" value={`${gymDayVolumes.length}`} />
+          <Stat label="Runs" value={`${runPoints.length}`} />
+          <Stat label="Bike rides" value={`${bikePoints.length}`} />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-lg font-extrabold mb-3">Runs</h2>
+        {runPoints.length === 0 && <p className="text-lg font-bold opacity-70">No runs logged yet.</p>}
+        {runPoints.map((p) => (
+          <div key={p.id} className="flex items-center justify-between gap-4 py-3.5 border-b-2 border-theme-accent/15 text-lg font-bold">
+            <span>{formatDateLabel(p.date)}</span>
+            <span className="font-extrabold opacity-80">
+              {p.distanceKm}km
+              {p.durationMin != null ? ` — ${p.durationMin}min` : ""}
+              {p.paceMinPerKm != null ? ` — ${formatPace(p.paceMinPerKm)}` : ""}
+            </span>
+          </div>
+        ))}
+      </section>
+
+      <section>
+        <h2 className="text-lg font-extrabold mb-3">Bike rides</h2>
+        {bikePoints.length === 0 && <p className="text-lg font-bold opacity-70">No bike rides logged yet.</p>}
+        {bikePoints.map((p) => (
+          <div key={p.id} className="flex items-center justify-between gap-4 py-3.5 border-b-2 border-theme-accent/15 text-lg font-bold">
+            <span>{formatDateLabel(p.date)}</span>
+            <span className="font-extrabold opacity-80">
+              {p.distanceKm}km
+              {p.durationMin != null ? ` — ${p.durationMin}min` : ""}
+              {p.paceMinPerKm != null ? ` — ${formatPace(p.paceMinPerKm)}` : ""}
+            </span>
+          </div>
+        ))}
+      </section>
+
+      <section>
+        <h2 className="text-lg font-extrabold mb-3">Gym — total weight lifted</h2>
+        {gymDayVolumes.length === 0 && <p className="text-lg font-bold opacity-70">No lifts logged yet.</p>}
+        {gymDayVolumes.map((g) => (
+          <div key={toDateInputValue(g.date)} className="flex items-center justify-between gap-4 py-3.5 border-b-2 border-theme-accent/15 text-lg font-bold">
+            <span>{formatDateLabel(g.date)}</span>
+            <span className="font-extrabold opacity-80">{Math.round(g.totalWeightLb).toLocaleString()}lb</span>
+          </div>
+        ))}
+      </section>
+
+      <section>
+        <h2 className="text-lg font-extrabold mb-3">Cardio trends</h2>
+        <CardioChart runs={runPoints} bikes={bikePoints} />
       </section>
     </div>
   );

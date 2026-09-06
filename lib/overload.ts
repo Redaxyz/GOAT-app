@@ -17,6 +17,11 @@ const REP_FLOOR = 8;
 const REP_CEILING = 12;
 export const DEFAULT_WEIGHT_INCREMENT_LB = 5;
 export const MAX_LIFT_SETS = 4;
+// Abs is loaded to a fixed weight that never changes — heavier strains the
+// back, lighter shifts too much of the load onto bodyweight — so unlike
+// every other lift it skips double progression entirely; only reps vary,
+// and freely from session to session rather than climbing toward a ceiling.
+export const ABS_FIXED_WEIGHT_LB = 67.5;
 const RUN_INCREMENT_KM = 0.5;
 const RUN_BASELINE_KM = 5;
 const BIKE_INCREMENT_KM = 3.5;
@@ -66,6 +71,16 @@ export function suggestNextLift(
     reps: REP_FLOOR,
     sets: last.sets,
     rationale: `Hit the ${REP_CEILING}-rep ceiling, so drop back to ${REP_FLOOR} reps and add ${incrementLb}lb.`,
+  };
+}
+
+/** Abs holds at ABS_FIXED_WEIGHT_LB forever — the "suggestion" is just a reminder of that weight plus whatever reps were done last time, since reps are freely chosen each session rather than progressed toward a target. */
+export function suggestNextAbs(last: { reps: number; sets: number } | null): LiftSuggestion {
+  return {
+    weightLb: ABS_FIXED_WEIGHT_LB,
+    reps: last?.reps ?? REP_FLOOR,
+    sets: last?.sets ?? 1,
+    rationale: `Fixed at ${ABS_FIXED_WEIGHT_LB}lb — reps vary session to session, so log whatever you did.`,
   };
 }
 

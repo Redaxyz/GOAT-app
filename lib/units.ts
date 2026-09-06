@@ -19,3 +19,11 @@ export function kgToLb(kg: number): number {
 export function lbToKg(lb: number): number {
   return Math.round(lb * KG_PER_LB * 100) / 100;
 }
+
+/** "6:09/km" from a decimal minutes-per-km pace. */
+export function formatPace(minPerKm: number): string {
+  const totalSeconds = Math.round(minPerKm * 60);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}/km`;
+}

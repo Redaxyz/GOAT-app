@@ -41,6 +41,7 @@ model Profile {
   workoutDayPlans      WorkoutDayPlan[]
   exerciseIncrements   ExerciseIncrement[]
   scheduleOverrides    ScheduleOverride[]
+  scheduleExtras       ScheduleExtra[]
   scheduleTemplate     ScheduleTemplate[]
   mealPlanItemOverride MealPlanItemOverride[]
   foodLogs             FoodLog[]
@@ -176,9 +177,16 @@ model ScheduleTemplate {
 // ---- Fitness: per-date schedule swaps -------------------------------------
 // The two-week gym/run/bike cycle (see lib/schedule.ts) has a fixed default,
 // but a specific date's type can be swapped on the fly (e.g. gym instead of
-// a scheduled run). dayType is "GYM" | "RUN" | "BIKE" | "REST" | "OTHER".
-// customLabel is only set when dayType is "OTHER" (e.g. "Swim") — a
+// a scheduled run). dayType is "GYM" | "RUN" | "BIKE" | "ROW" | "SWIM" |
+// "REST" | "OTHER". dayKey picks a specific lift day (e.g. "A1") when
+// dayType is "GYM" — if left unset, GYM falls back to whatever the template
+// already had for that date, same as before this field existed. runVariant
+// is "LONG" | "SHORT" when dayType is "RUN", with the same fallback.
+// customLabel is only set when dayType is "OTHER" (e.g. "Hike") — a
 // free-text day type available per-date only, not in the recurring template.
+// Swapping a date to "REST" is what *takes* the two-week cycle's one
+// floating rest day (see findCycleRestSlot in lib/schedule.ts) — it isn't a
+// plain swap like the other types.
 
 model ScheduleOverride {
   id          String   @id @default(cuid())
@@ -186,6 +194,8 @@ model ScheduleOverride {
   profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
   date        DateTime
   dayType     String
+  dayKey      String?
+  runVariant  String?
   customLabel String?
 
   createdAt DateTime @default(now())
@@ -193,6 +203,28 @@ model ScheduleOverride {
 
   @@unique([profileId, date])
   @@map("schedule_overrides")
+}
+
+// ---- Fitness: a second workout on top of the day's main one ----------------
+// Same shape as ScheduleOverride, but additive rather than a swap — for the
+// (rare) day with two separate sessions, e.g. a lift day AND a bike ride.
+// Only one extra per date; REST doesn't apply here (see lib/schedule.ts).
+
+model ScheduleExtra {
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date        DateTime
+  dayType     String
+  dayKey      String?
+  runVariant  String?
+  customLabel String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, date])
+  @@map("schedule_extras")
 }
 
 // ---- Fitness: cardio (run / bike / row / swim) -----------------------------
