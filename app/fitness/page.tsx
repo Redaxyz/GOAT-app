@@ -307,8 +307,8 @@ function EditView({ liftDays, cycleTemplate }: { liftDays: LiftDayDef[]; cycleTe
                 className="text-right text-base font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
               >
                 {/* "Other" is per-date only (see the calendar above) — not valid for the recurring template.
-                    "Rest" is a floating single day per cycle now, taken via the swap-day Rest button rather
-                    than pinned to a fixed slot here (see findCycleRestSlot in lib/schedule.ts). */}
+                    "Rest" is the cycle's fixed last slot, plus any single date set to rest via the calendar's
+                    Rest button (a one-day override — see effectiveEntryForDate in lib/schedule.ts). */}
                 {(Object.keys(SCHEDULE_TYPE_LABEL) as ScheduleDayType[])
                   .filter((t) => t !== "OTHER" && t !== "REST")
                   .map((t) => (

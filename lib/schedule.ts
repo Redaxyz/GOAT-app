@@ -34,9 +34,9 @@ export function parseExercisesText(text: string): string[] {
 
 // ---- Two-week schedule ----------------------------------------------------
 // A repeating 14-day cycle: 13 fixed activity slots (6 gym, 5 run, 2 bike —
-// bike always landing on Saturday) plus one floating rest day that defaults
-// to the very end of the cycle but can be taken on any of the 13 other days
-// instead (see findCycleRestSlot/baseSlotForCycleSlot below). Gym rotates
+// bike always landing on Saturday) plus a rest day fixed at the very end of
+// the cycle (slot 13). Turning any other date into rest is just a one-day
+// override (see effectiveEntryForDate) — it never moves anything else. Gym rotates
 // continuously through the profile's lift days (front1/back1/front2/back2/...)
 // *across* cycle boundaries rather than resetting every two weeks — so which
 // lift day lands on a given date depends on how many gym slots have come
@@ -72,7 +72,7 @@ export type ScheduleOverrideInfo = { type: ScheduleDayType; customLabel: string 
 export type ScheduleEntry = { type: ScheduleDayType; dayKey: DayKey | null; customLabel?: string | null; runVariant?: RunVariant | null };
 
 // The 13 fixed activity slots (0-12) of the base pattern — the 14th "day" is
-// never a slot here; it's the floating rest described above. Only the *type*
+// never a slot here; it's the fixed rest described above. Only the *type*
 // per slot is a built-in default; a profile can rearrange it slot by slot
 // through the edit view (see ScheduleTemplate / resolveCycleTemplate), and
 // each profile's choices are saved independently (a plain default here never
@@ -113,42 +113,15 @@ export function cycleSlotLabel(slotIndex: number): string {
   return `${week} — ${weekday}`;
 }
 
-/** Which 14-day cycle `isoDate` falls in, and its raw calendar slot (0-13) within that cycle — before any rest-day shift is applied. */
+/** Which 14-day cycle `isoDate` falls in, and its raw calendar slot (0-13) within that cycle. */
 function cycleNumberAndSlot(isoDate: string): { cycleNumber: number; slot: number } {
   const diff = daysBetween(CYCLE_ANCHOR, isoDate);
   const cycleNumber = Math.floor(diff / 14);
   return { cycleNumber, slot: diff - cycleNumber * 14 };
 }
 
-function cycleStartDate(cycleNumber: number): string {
-  return addDays(CYCLE_ANCHOR, cycleNumber * 14);
-}
-
-/**
- * Which of this cycle's 14 calendar slots (0-13) is its one floating rest
- * day — the earliest date in the cycle with a saved REST override, or 13
- * (the default, floating to the very end) if the user hasn't taken it yet.
- * Reused by every date in the same cycle, so the whole cycle shifts together
- * off a single choice rather than each date deciding independently.
- */
-function findCycleRestSlot(cycleNumber: number, scheduleOverrideByDate: Map<string, ScheduleOverrideInfo>): number {
-  const start = cycleStartDate(cycleNumber);
-  for (let i = 0; i < 14; i++) {
-    if (scheduleOverrideByDate.get(addDays(start, i))?.type === "REST") return i;
-  }
-  return 13;
-}
-
-/**
- * Maps a calendar slot (0-13) back to its position in the unshifted 13-slot
- * base pattern (0-12), or "REST" if this is the slot the cycle's rest landed
- * on. Taking rest early doesn't replace that day's activity — it shifts that
- * activity (and everything after it) one day later within the same cycle.
- */
-function baseSlotForCycleSlot(slot: number, restSlot: number): number | "REST" {
-  if (slot === restSlot) return "REST";
-  return slot < restSlot ? slot : slot - 1;
-}
+/** The last calendar slot of each cycle is its rest day; the 13 slots before it are the base activity pattern. */
+const REST_SLOT = 13;
 
 /** Rank (0-based) of each slot of `type` among all slots of that type in `cycleTemplate`, in chronological order; -1 elsewhere. */
 function slotRanksByType(cycleTemplate: ScheduleDayType[], type: ScheduleDayType): number[] {
@@ -192,8 +165,7 @@ function runVariantForBaseSlot(i: number): RunVariant {
 
 /**
  * The template's default schedule entry for a date, before any user swap —
- * accounting for the cycle's rest day (if taken early) shifting everything
- * after it. The long/short run distinction is Reda's own personal schedule
+ * (the cycle's fixed rest day is slot 13). The long/short run distinction is Reda's own personal schedule
  * preference (see RUN_VARIANT_BY_WEEKDAY), not a general app feature, so it
  * only applies for her profile — everyone else just gets a plain "RUN" like
  * before this was introduced, since it's not clear another profile would
@@ -203,13 +175,11 @@ export function templateEntryForDate(
   isoDate: string,
   liftDays: LiftDayDef[],
   cycleTemplate: ScheduleDayType[],
-  scheduleOverrideByDate: Map<string, ScheduleOverrideInfo>,
   profileSlug: ProfileSlug
 ): ScheduleEntry {
   const { cycleNumber, slot } = cycleNumberAndSlot(isoDate);
-  const restSlot = findCycleRestSlot(cycleNumber, scheduleOverrideByDate);
-  const baseSlot = baseSlotForCycleSlot(slot, restSlot);
-  if (baseSlot === "REST") return { type: "REST", dayKey: null };
+  if (slot === REST_SLOT) return { type: "REST", dayKey: null };
+  const baseSlot = slot;
 
   const type = cycleTemplate[baseSlot];
   if (type === "GYM") {
@@ -230,10 +200,8 @@ export function templateEntryForDate(
  * it set one (picking a specific lift day or run variant directly, however
  * that date was templated); otherwise it carries over the template's own
  * dayKey/runVariant if the template's type already matched, or falls back to
- * a generic "gym day"/variant-less run. Swapping to REST is what *takes* the
- * cycle's floating rest day (see findCycleRestSlot) — it isn't layered on
- * top like the other types, it's read back out of the same override this
- * function itself applies, via templateEntryForDate above.
+ * a generic "gym day"/variant-less run. Swapping to REST just makes that one
+ * date a rest day — no other date in the calendar moves.
  */
 export function effectiveEntryForDate(
   isoDate: string,
@@ -242,7 +210,7 @@ export function effectiveEntryForDate(
   scheduleOverrideByDate: Map<string, ScheduleOverrideInfo>,
   profileSlug: ProfileSlug
 ): ScheduleEntry {
-  const template = templateEntryForDate(isoDate, liftDays, cycleTemplate, scheduleOverrideByDate, profileSlug);
+  const template = templateEntryForDate(isoDate, liftDays, cycleTemplate, profileSlug);
   const override = scheduleOverrideByDate.get(isoDate) ?? null;
   if (override == null) return template;
   if (override.type === "GYM") {
