@@ -138,13 +138,11 @@ export default function MonthCalendar({
   monthLabel,
   cells,
   leadingBlanks,
-  todayStr,
   liftDays,
 }: {
   monthLabel: string;
   cells: CalendarCell[];
   leadingBlanks: number;
-  todayStr: string;
   liftDays: LiftDayDef[];
 }) {
   const [openDate, setOpenDate] = useState<string | null>(null);
@@ -175,7 +173,6 @@ export default function MonthCalendar({
           <div key={`blank-${i}`} />
         ))}
         {cells.map((cell) => {
-          const editable = cell.date >= todayStr;
           const abbr = cell.type === "OTHER" ? cell.customLabel?.trim()?.[0]?.toUpperCase() || "O" : cell.note ?? TYPE_ABBR[cell.type];
           const label = `${cell.customLabel || SCHEDULE_TYPE_LABEL[cell.type]}${cell.secondary ? ` + ${cell.secondary.label}` : ""}`;
           const title = `${cell.date} — ${label}${cell.isOverridden ? " (swapped)" : ""}`;
@@ -187,15 +184,12 @@ export default function MonthCalendar({
             <button
               key={cell.date}
               type="button"
-              disabled={!editable}
               onClick={() => toggle(cell.date)}
               title={title}
               style={split ? { backgroundImage: `linear-gradient(120deg, ${TYPE_COLOR_HEX[cell.type]} 50%, ${secondaryColor} 50%)` } : undefined}
-              className={`aspect-square rounded-lg flex flex-col items-center justify-center text-[10px] font-extrabold transition ${
+              className={`aspect-square rounded-lg flex flex-col items-center justify-center text-[10px] font-extrabold transition cursor-pointer hover:opacity-80 active:scale-95 ${
                 split ? "" : TYPE_STYLE[cell.type]
-              } ${cell.isToday ? "ring-2 ring-theme-accent" : ""} ${openDate === cell.date ? "ring-2 ring-theme-own" : ""} ${
-                editable ? "cursor-pointer hover:opacity-80 active:scale-95" : "cursor-default"
-              }`}
+              } ${cell.isToday ? "ring-2 ring-theme-accent" : ""} ${openDate === cell.date ? "ring-2 ring-theme-own" : ""}`}
             >
               {split ? (
                 <span className="px-1 rounded bg-white/80 text-black leading-none">{cell.day}</span>

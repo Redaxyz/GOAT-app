@@ -122,7 +122,7 @@ export default async function FitnessPage({ searchParams }: { searchParams: Prom
           </Link>
         </div>
 
-        <MonthCalendar monthLabel={monthLabel} cells={calendarCells} leadingBlanks={leadingBlanks} todayStr={todayStr} liftDays={data.liftDays} />
+        <MonthCalendar monthLabel={monthLabel} cells={calendarCells} leadingBlanks={leadingBlanks} liftDays={data.liftDays} />
 
         <TodayWorkoutCard data={data} dateStr={todayStr} />
 

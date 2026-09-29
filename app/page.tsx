@@ -61,7 +61,7 @@ export default async function HomePage({
       {isToday ? (
         <TodaySections profileId={profile.id} profileSlug={profile.slug as ProfileSlug} />
       ) : (
-        <PastDaySections profileId={profile.id} selectedDate={selectedDate} edit={edit === "1"} />
+        <PastDaySections profileId={profile.id} profileSlug={profile.slug as ProfileSlug} selectedDate={selectedDate} edit={edit === "1"} />
       )}
     </div>
   );
@@ -72,10 +72,37 @@ async function TodaySections({ profileId, profileSlug }: { profileId: string; pr
   const todayStr = today();
   const yesterday = addDays(todayStr, -1);
 
-  const todayWeekday = weekdayName(todayStr);
+  const yesterdayCheckIn = await prisma.dailyCheckIn.findUnique({ where: { profileId_date: { profileId, date: dateOnly(yesterday) } } });
+
+  return (
+    <>
+      <YesterdayCard dateStr={yesterday} existing={yesterdayCheckIn} />
+      <FoodAndWorkoutSections profileId={profileId} profileSlug={profileSlug} dateStr={todayStr} isToday />
+    </>
+  );
+}
+
+/**
+ * Food log + workout card for one date — shared by today (TodaySections
+ * above) and any past date (PastDaySections below), so fixing a missed lift
+ * or adjusting what was actually eaten works the same way browsing back as
+ * it does today; only the "today's"/"Today" wording and the yesterday recap
+ * differ by date.
+ */
+async function FoodAndWorkoutSections({
+  profileId,
+  profileSlug,
+  dateStr,
+  isToday,
+}: {
+  profileId: string;
+  profileSlug: ProfileSlug;
+  dateStr: string;
+  isToday: boolean;
+}) {
+  const weekday = weekdayName(dateStr);
 
   const [
-    yesterdayCheckIn,
     fitnessData,
     overrideRows,
     foodLogRows,
@@ -88,65 +115,63 @@ async function TodaySections({ profileId, profileSlug }: { profileId: string; pr
     dateExtraRows,
     removalRows,
   ] = await Promise.all([
-    prisma.dailyCheckIn.findUnique({ where: { profileId_date: { profileId, date: dateOnly(yesterday) } } }),
     getFitnessData(profileId, profileSlug),
     prisma.mealPlanItemOverride.findMany({ where: { profileId } }),
-    prisma.foodLog.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
-    prisma.foodItemSwap.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
-    prisma.mealPlanItemSwap.findMany({ where: { profileId, day: todayWeekday } }),
-    prisma.snackLog.findMany({ where: { profileId, date: dateOnly(todayStr) }, orderBy: { createdAt: "asc" } }),
+    prisma.foodLog.findMany({ where: { profileId, date: dateOnly(dateStr) } }),
+    prisma.foodItemSwap.findMany({ where: { profileId, date: dateOnly(dateStr) } }),
+    prisma.mealPlanItemSwap.findMany({ where: { profileId, day: weekday } }),
+    prisma.snackLog.findMany({ where: { profileId, date: dateOnly(dateStr) }, orderBy: { createdAt: "asc" } }),
     prisma.customFoodItem.findMany({ where: { profileId }, orderBy: { name: "asc" } }),
-    prisma.dailyFoodLogComplete.findUnique({ where: { profileId_date: { profileId, date: dateOnly(todayStr) } } }),
-    prisma.mealPlanExtraItem.findMany({ where: { profileId, day: todayWeekday }, include: { customFoodItem: true } }),
-    prisma.foodItemExtra.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
-    prisma.foodItemRemoval.findMany({ where: { profileId, date: dateOnly(todayStr) } }),
+    prisma.dailyFoodLogComplete.findUnique({ where: { profileId_date: { profileId, date: dateOnly(dateStr) } } }),
+    prisma.mealPlanExtraItem.findMany({ where: { profileId, day: weekday }, include: { customFoodItem: true } }),
+    prisma.foodItemExtra.findMany({ where: { profileId, date: dateOnly(dateStr) } }),
+    prisma.foodItemRemoval.findMany({ where: { profileId, date: dateOnly(dateStr) } }),
   ]);
 
   const overrides = buildOverrideMap(overrideRows);
   const weekdaySwaps = buildMealPlanSwapMap(weekdaySwapRows);
-  const todayPlan = getMealPlan(overrides, weekdaySwaps, customFoodItems, extraItemRows).find((d) => d.day === todayWeekday);
+  const dayPlan = getMealPlan(overrides, weekdaySwaps, customFoodItems, extraItemRows).find((d) => d.day === weekday);
 
   const initialFoodLog: Record<string, number> = {};
   for (const row of foodLogRows) initialFoodLog[foodLogKey(row.meal as MealKey, row.groceryId)] = row.amountG;
 
-  // Today's own swap layers on top of the standing weekday plan above (e.g.
-  // eating pasta just today despite Tuesday's standing carb being rice), and
-  // every item is fully swappable/removable/addable — see makeFullySwappable.
-  const dateSwaps = buildFoodSwapMap(todayWeekday, dateSwapRows);
-  const breakfast = todayPlan
-    ? applyDailyModifications(todayPlan.breakfast, "breakfast", todayWeekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
+  // That date's own swap layers on top of the standing weekday plan above
+  // (e.g. eating pasta just that day despite Tuesday's standing carb being
+  // rice), and every item is fully swappable/removable/addable — see
+  // makeFullySwappable.
+  const dateSwaps = buildFoodSwapMap(weekday, dateSwapRows);
+  const breakfast = dayPlan
+    ? applyDailyModifications(dayPlan.breakfast, "breakfast", weekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
     : [];
-  const lunch = todayPlan
-    ? applyDailyModifications(todayPlan.lunch, "lunch", todayWeekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
+  const lunch = dayPlan
+    ? applyDailyModifications(dayPlan.lunch, "lunch", weekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
     : [];
-  const dinner = todayPlan
-    ? applyDailyModifications(todayPlan.dinner, "dinner", todayWeekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
+  const dinner = dayPlan
+    ? applyDailyModifications(dayPlan.dinner, "dinner", weekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
     : [];
-  const todayTotal = sumMacros([breakfast, lunch, dinner]);
+  const dayTotal = sumMacros([breakfast, lunch, dinner]);
 
   return (
     <>
-      <YesterdayCard dateStr={yesterday} existing={yesterdayCheckIn} />
-
-      {todayPlan && (
+      {dayPlan && (
         <section>
-          <h2 className="text-lg font-extrabold mb-1">Today&apos;s meals</h2>
-          <p className="text-sm font-semibold opacity-70 mb-4">Log what you actually ate — the faint number in each box is the plan&apos;s suggestion.</p>
+          <h2 className="text-lg font-extrabold mb-1">{isToday ? "Today's meals" : "Meals"}</h2>
+          <p className="text-sm font-semibold opacity-70 mb-4">Log what was actually eaten — the faint number in each box is the plan&apos;s suggestion.</p>
           <FoodLogSection
-            dateStr={todayStr}
+            dateStr={dateStr}
             mealGroups={[
               { meal: "breakfast", label: "Breakfast", items: breakfast },
               { meal: "lunch", label: "Lunch", items: lunch },
               { meal: "dinner", label: "Dinner", items: dinner },
             ]}
             initialFoodLog={initialFoodLog}
-            targetTotal={todayTotal}
+            targetTotal={dayTotal}
             initialSnacks={snackRows}
             customFoodItems={customFoodItems}
           />
 
           <form action={foodLogComplete ? clearFoodLogComplete : markFoodLogComplete} className="mt-4">
-            <input type="hidden" name="date" value={todayStr} />
+            <input type="hidden" name="date" value={dateStr} />
             <SubmitButton
               pendingLabel="Saving…"
               savedLabel="Saved ✓"
@@ -156,19 +181,26 @@ async function TodaySections({ profileId, profileSlug }: { profileId: string; pr
                   : "bg-theme-accent text-theme-own hover:opacity-90"
               }`}
             >
-              {foodLogComplete ? "✓ Today's food logged — tap to undo" : "Mark today's food as logged"}
+              {foodLogComplete ? "✓ Food logged — tap to undo" : "Mark food as logged"}
             </SubmitButton>
           </form>
         </section>
       )}
 
-      <TodayWorkoutCard data={fitnessData} dateStr={todayStr} />
+      <TodayWorkoutCard data={fitnessData} dateStr={dateStr} label={isToday ? "Today" : "Workout"} />
     </>
   );
 }
 
-/** Browsing a past date via the arrows still uses the original read/edit check-in view. */
-async function PastDaySections({ profileId, selectedDate, edit }: { profileId: string; selectedDate: string; edit: boolean }) {
+/**
+ * Browsing a past date via the arrows: the same food log + workout card as
+ * today (so a missed lift or meal can be fixed retroactively — see
+ * FoodAndWorkoutSections), plus the check-in record (stuck to plan/calories
+ * burned/weight), which still has its own explicit view/edit toggle since
+ * those are simple point-in-time fields rather than something to fill in
+ * live like the meals and workout are.
+ */
+async function PastDaySections({ profileId, profileSlug, selectedDate, edit }: { profileId: string; profileSlug: ProfileSlug; selectedDate: string; edit: boolean }) {
   const editMode = edit;
   const sunday = isSunday(selectedDate);
   const dateFilter = { profileId_date: { profileId, date: dateOnly(selectedDate) } };
@@ -180,22 +212,25 @@ async function PastDaySections({ profileId, selectedDate, edit }: { profileId: s
 
   return (
     <>
-      <div className="flex justify-center">
-        {editMode ? (
-          <Link href={`/?date=${selectedDate}`} className="text-sm font-bold underline underline-offset-4">
-            Done editing
-          </Link>
-        ) : (
-          <Link
-            href={`/?date=${selectedDate}&edit=1`}
-            className="px-5 py-1.5 rounded-full bg-theme-accent text-theme-own text-sm font-bold shadow-sm hover:opacity-90 active:scale-95 transition"
-          >
-            Edit
-          </Link>
-        )}
-      </div>
+      <FoodAndWorkoutSections profileId={profileId} profileSlug={profileSlug} dateStr={selectedDate} isToday={false} />
 
       <section>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-extrabold">Check-in</h2>
+          {editMode ? (
+            <Link href={`/?date=${selectedDate}`} className="text-sm font-bold underline underline-offset-4">
+              Done editing
+            </Link>
+          ) : (
+            <Link
+              href={`/?date=${selectedDate}&edit=1`}
+              className="px-5 py-1.5 rounded-full bg-theme-accent text-theme-own text-sm font-bold shadow-sm hover:opacity-90 active:scale-95 transition"
+            >
+              Edit
+            </Link>
+          )}
+        </div>
+
         {editMode ? (
           <form action={submitCheckIn}>
             <input type="hidden" name="date" value={selectedDate} />

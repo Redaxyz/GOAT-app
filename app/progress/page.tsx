@@ -84,17 +84,24 @@ export default async function ProgressPage() {
   const burnedByDate = new Map(checkIns.map((c) => [toDateInputValue(c.date), c.bmrReadingKcal]));
   const stuckToMealPlanByDate = new Map(checkIns.map((c) => [toDateInputValue(c.date), c.stuckToMealPlan]));
 
+  // One entry per calendar day of the week (Mon-Sun), not just up to today —
+  // future days stay null so the grid always shows all 7 columns.
+  type DayDeficit = { date: string; deficit: number | null };
+  const dailyDeficits: DayDeficit[] = [];
   let weeklyDeficit = 0;
   let daysCounted = 0;
-  for (let d = monday; d <= todayStr; d = addDays(d, 1)) {
-    const burned = burnedByDate.get(d);
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(monday, i);
+    const burned = d <= todayStr ? burnedByDate.get(d) : null;
     const dayPlan = mealPlanByDay.get(weekdayName(d));
-    if (burned == null || !dayPlan) continue;
     // A day marked "didn't stick to the meal plan" means that day's logged
     // food isn't a reliable read of what was actually eaten — voiding both
     // sides (burned and eaten) rather than just eaten, since a deficit built
     // from only one real number isn't meaningful either.
-    if (stuckToMealPlanByDate.get(d) === false) continue;
+    if (d > todayStr || burned == null || !dayPlan || stuckToMealPlanByDate.get(d) === false) {
+      dailyDeficits.push({ date: d, deficit: null });
+      continue;
+    }
 
     // That date's own swap/add/remove customizations layer on top of the
     // standing weekday plan above, same as Home — otherwise a logged,
@@ -116,9 +123,14 @@ export default async function ProgressPage() {
     // Added items have no separate "logged" state (see FoodItemExtra) — their amount always counts.
     const addedItems = mealGroups.flatMap((g) => g.items.filter((it) => it.extraItemId));
     const addedCalories = Math.round(addedItems.reduce((sum, it) => sum + it.proteinG * 4 + it.carbG * 4 + it.fatG * 9, 0));
-    if (eaten.itemsLogged === 0 && addedItems.length === 0) continue;
+    if (eaten.itemsLogged === 0 && addedItems.length === 0) {
+      dailyDeficits.push({ date: d, deficit: null });
+      continue;
+    }
 
-    weeklyDeficit += burned - (eaten.calories + addedCalories);
+    const deficit = burned - (eaten.calories + addedCalories);
+    dailyDeficits.push({ date: d, deficit });
+    weeklyDeficit += deficit;
     daysCounted++;
   }
 
@@ -148,9 +160,13 @@ export default async function ProgressPage() {
         </div>
 
         <div className="mb-6">
-          <Stat label="Weekly deficit (Mon–today)" value={daysCounted > 0 ? `${weeklyDeficit} kcal` : "—"} />
-          <p className="text-xs font-semibold opacity-50 mt-0.5">
-            Burned minus eaten, {daysCounted} of {daysBetween(monday, todayStr) + 1} days logged this week. Resets every Monday.
+          <div className="text-xs font-bold opacity-60 uppercase tracking-wide mb-2">
+            Calorie deficit — {daysCounted > 0 ? `${weeklyDeficit} kcal this week` : "no days logged yet this week"}
+          </div>
+          <DeficitGrid days={dailyDeficits} />
+          <p className="text-xs font-semibold opacity-50 mt-2">
+            Burned minus eaten, {daysCounted} of {daysBetween(monday, todayStr) + 1} days logged this week. Red = a surplus day. Resets every
+            Monday.
           </p>
         </div>
 
@@ -366,6 +382,28 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div>
       <div className="text-xs font-bold opacity-60 uppercase tracking-wide">{label}</div>
       <div className="text-xl font-extrabold">{value}</div>
+    </div>
+  );
+}
+
+const WEEKDAY_LETTERS = ["M", "T", "W", "R", "F", "St", "Su"]; // Mon..Sun, matching dailyDeficits' order
+
+/** One cell per day of the current week (Mon-Sun) — the day's calorie deficit (burned minus eaten), red once it flips to a surplus. A day with no reading yet (including any day still to come) shows a dash. */
+function DeficitGrid({ days }: { days: { date: string; deficit: number | null }[] }) {
+  return (
+    <div className="grid grid-cols-7 gap-1.5">
+      {days.map((d, i) => (
+        <div key={d.date} className="flex flex-col items-center gap-1">
+          <span className="text-[10px] font-bold opacity-40">{WEEKDAY_LETTERS[i]}</span>
+          <div
+            className={`w-full aspect-square rounded-lg flex items-center justify-center text-[11px] font-extrabold leading-none ${
+              d.deficit == null ? "bg-theme-accent/5 opacity-30" : d.deficit < 0 ? "bg-red-500/15 text-red-500" : "bg-theme-accent/10"
+            }`}
+          >
+            {d.deficit != null ? d.deficit.toLocaleString() : "—"}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
