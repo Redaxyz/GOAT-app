@@ -7,7 +7,7 @@ import { getActiveProfile, setActiveProfileCookie, clearActiveProfileCookie, ens
 import { feetInchesToCm, lbToKg, kgToLb } from "@/lib/units";
 import { DEFAULT_LIFT_DAYS, DEFAULT_CYCLE_TYPE_TEMPLATE, parseExercisesText, type ScheduleDayType } from "@/lib/schedule";
 import { MAX_LIFT_SETS } from "@/lib/overload";
-import { allFoodOptions, macroGrams, type MealKey } from "@/lib/nutrition";
+import { allFoodOptions, macroGrams, WEEKLY_MEAL_PLAN, type MealKey } from "@/lib/nutrition";
 import { dateOnly } from "@/lib/date";
 import type { ProfileSlug, CardioType, LiftSetEntry } from "@/lib/types";
 
@@ -432,27 +432,84 @@ export async function setMealPlanItemSwap(day: string, meal: MealKey, slot: stri
   revalidatePath("/progress");
 }
 
+const MEAL_KEYS: MealKey[] = ["breakfast", "lunch", "dinner"];
+
+/**
+ * Removes one item from the STANDING plan for each of the given weekdays'
+ * meal (e.g. yogurt out of every weekday breakfast), so it stops showing on
+ * Grocery, Home, and the grocery list without having to remove it by hand
+ * each day. groceryId is whatever's currently shown for that slot. Reverse
+ * with restoreMealPlanItem.
+ */
+export async function removeMealPlanItem(days: string[], meal: MealKey, groceryId: string) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+  if (!MEAL_KEYS.includes(meal)) throw new Error("Unknown meal");
+  const validDays = new Set<string>(WEEKLY_MEAL_PLAN.map((d) => d.day));
+  const targetDays = days.filter((d) => validDays.has(d));
+  if (targetDays.length === 0) throw new Error("No valid days given");
+
+  await prisma.mealPlanItemRemoval.createMany({
+    data: targetDays.map((day) => ({ profileId: profile.id, day, meal, groceryId })),
+    skipDuplicates: true,
+  });
+
+  revalidatePath("/grocery");
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
+/** Puts a standing-plan item back on one weekday's meal — the undo for removeMealPlanItem. */
+export async function restoreMealPlanItem(day: string, meal: MealKey, groceryId: string) {
+  const profile = await getActiveProfile();
+  if (!profile) throw new Error("No active profile");
+
+  await prisma.mealPlanItemRemoval.deleteMany({ where: { profileId: profile.id, day, meal, groceryId } });
+
+  revalidatePath("/grocery");
+  revalidatePath("/");
+  revalidatePath("/progress");
+}
+
 /** Adds a user-defined food to the Grocery page's personal food list — P/F/C given for one reference weight, raw or cooked. A "protein"/"carb" category also joins that food to the lunch/dinner meat/carb swap dropdowns everywhere (see lib/nutrition.ts). */
 export async function addCustomFoodItem(formData: FormData) {
   const profile = await getActiveProfile();
   if (!profile) throw new Error("No active profile");
 
   const name = requireString(formData, "name");
-  const amountG = Number(requireString(formData, "amountG"));
   const proteinG = Number(requireString(formData, "proteinG"));
   const carbG = Number(requireString(formData, "carbG"));
   const fatG = Number(requireString(formData, "fatG"));
-  const state = requireString(formData, "state");
   const category = requireString(formData, "category");
 
+  // Measured by weight (macros given for a reference weight in grams) or by
+  // count (macros given for ONE unit, e.g. one gel) — a counted food is
+  // stored with a reference amount of 1 so every per-100 calculation
+  // downstream works unchanged, with the unit name carried alongside.
+  const measure = requireString(formData, "measure");
+  let amountG: number;
+  let unit = "g";
+  let state: string;
+  if (measure === "units") {
+    unit = requireString(formData, "unit").trim().slice(0, 20);
+    if (!unit || unit.toLowerCase() === "g") throw new Error("Give the unit a name, like gel");
+    amountG = 1;
+    state = "raw"; // raw/cooked doesn't apply to a counted item
+  } else if (measure === "weight") {
+    amountG = Number(requireString(formData, "amountG"));
+    state = requireString(formData, "state");
+  } else {
+    throw new Error("Measure must be weight or units");
+  }
+
   if (![amountG, proteinG, carbG, fatG].every((n) => Number.isFinite(n) && n >= 0)) {
-    throw new Error("Weight and macros must be non-negative numbers");
+    throw new Error("Amount and macros must be non-negative numbers");
   }
   if (state !== "raw" && state !== "cooked") throw new Error("State must be raw or cooked");
   if (!["protein", "carb", "other"].includes(category)) throw new Error("Category must be protein, carb, or other");
 
   await prisma.customFoodItem.create({
-    data: { profileId: profile.id, name, amountG, proteinG, carbG, fatG, state, category },
+    data: { profileId: profile.id, name, amountG, unit, proteinG, carbG, fatG, state, category },
   });
 
   // A new protein/carb food should show up in the meat/carb dropdowns
@@ -555,6 +612,7 @@ export async function addSnack(formData: FormData) {
 
   let label: string;
   let amountG: number | null = null;
+  let unit = "g";
   let proteinG: number;
   let carbG: number;
   let fatG: number;
@@ -567,6 +625,7 @@ export async function addSnack(formData: FormData) {
     amountG = Number(requireString(formData, "amountG"));
     if (!Number.isFinite(amountG) || amountG < 0) throw new Error("Amount must be a non-negative number");
     label = option.item;
+    unit = option.unit ?? "g";
     ({ proteinG, carbG, fatG } = macroGrams(amountG, option.per100g));
   } else if (source === "other") {
     label = requireString(formData, "label");
@@ -581,7 +640,7 @@ export async function addSnack(formData: FormData) {
   }
 
   await prisma.snackLog.create({
-    data: { profileId: profile.id, date, label, amountG, proteinG, carbG, fatG },
+    data: { profileId: profile.id, date, label, amountG, unit, proteinG, carbG, fatG },
   });
 
   revalidatePath("/");

@@ -35,6 +35,7 @@ export default async function ProgressPage() {
     weekRemovalRows,
     lifts,
     cardio,
+    standingRemovalRows,
   ] = await Promise.all([
     prisma.weightLog.findMany({
       where: { profileId: profile.id },
@@ -54,6 +55,7 @@ export default async function ProgressPage() {
     prisma.foodItemRemoval.findMany({ where: { profileId: profile.id, date: { gte: dateOnly(monday), lte: dateOnly(todayStr) } } }),
     prisma.liftLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
     prisma.cardioLog.findMany({ where: { profileId: profile.id }, orderBy: { date: "desc" } }),
+    prisma.mealPlanItemRemoval.findMany({ where: { profileId: profile.id } }),
   ]);
 
   const gymDayVolumes = buildGymDayVolumes(lifts);
@@ -79,7 +81,7 @@ export default async function ProgressPage() {
   const overrides = buildOverrideMap(overrideRows);
   const weekdaySwaps = buildMealPlanSwapMap(weekdaySwapRows);
   const mealPlanByDay = new Map<string, ReturnType<typeof getMealPlan>[number]>(
-    getMealPlan(overrides, weekdaySwaps, customFoodItems, extraItemRows).map((d) => [d.day, d])
+    getMealPlan(overrides, weekdaySwaps, customFoodItems, extraItemRows, standingRemovalRows).map((d) => [d.day, d])
   );
   const burnedByDate = new Map(checkIns.map((c) => [toDateInputValue(c.date), c.bmrReadingKcal]));
   const stuckToMealPlanByDate = new Map(checkIns.map((c) => [toDateInputValue(c.date), c.stuckToMealPlan]));
@@ -116,7 +118,7 @@ export default async function ProgressPage() {
     const foodLogMap = buildFoodLogMap(weekFoodLogRows.filter((r) => toDateInputValue(r.date) === d));
     const mealGroups: { meal: MealKey; items: typeof dayPlan.breakfast }[] = (["breakfast", "lunch", "dinner"] as const).map((meal) => ({
       meal,
-      items: applyDailyModifications(dayPlan[meal], meal, dayPlan.day, dateSwaps, overrides, customFoodItems, dateExtras, dateRemovals),
+      items: applyDailyModifications(dayPlan[meal], meal, dayPlan.day, dateSwaps, overrides, customFoodItems, dateExtras, dateRemovals, standingRemovalRows),
     }));
     const eaten = sumLoggedMacros(getLoggedItems(mealGroups, foodLogMap));
 

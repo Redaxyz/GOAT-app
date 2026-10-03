@@ -9,7 +9,7 @@ import SubmitButton from "@/app/components/SubmitButton";
 
 type MealGroup = { meal: MealKey; label: string; items: MacroItem[] };
 type TargetTotal = { calories: number; proteinG: number; carbG: number; fatG: number };
-type SnackEntry = { id: string; label: string; amountG: number | null; proteinG: number; carbG: number; fatG: number };
+type SnackEntry = { id: string; label: string; amountG: number | null; unit: string; proteinG: number; carbG: number; fatG: number };
 
 /**
  * Today's meal plan, fully modular: every item can be swapped for anything
@@ -224,7 +224,7 @@ function MealBlock({
               <input
                 type="number"
                 min="0"
-                step="1"
+                step={it.unit === "g" ? "1" : "any"}
                 value={loggedAmount ?? ""}
                 placeholder={String(it.amount)}
                 onChange={(e) => onChange(meal, it, e.target.value)}
@@ -252,7 +252,10 @@ function MealBlock({
 
 /** Adds any food (built-in or a saved custom food) as its own row to one meal, for today only — see FoodItemExtra. */
 function AddFoodItemForm({ dateStr, meal, customFoodItems, onDone }: { dateStr: string; meal: MealKey; customFoodItems: CustomFoodRow[]; onDone: () => void }) {
-  const groups = groupFoodOptions(allFoodOptions(customFoodItems));
+  const options = allFoodOptions(customFoodItems);
+  const groups = groupFoodOptions(options);
+  const [selectedId, setSelectedId] = useState(groups[0]?.options[0]?.groceryId ?? "");
+  const unit = options.find((o) => o.groceryId === selectedId)?.unit ?? "g";
 
   return (
     <form
@@ -262,7 +265,13 @@ function AddFoodItemForm({ dateStr, meal, customFoodItems, onDone }: { dateStr: 
     >
       <input type="hidden" name="date" value={dateStr} />
       <input type="hidden" name="meal" value={meal} />
-      <select name="groceryId" required className={`flex-1 min-w-[9rem] truncate ${fieldClass}`}>
+      <select
+        name="groceryId"
+        required
+        value={selectedId}
+        onChange={(e) => setSelectedId(e.target.value)}
+        className={`flex-1 min-w-[9rem] truncate ${fieldClass}`}
+      >
         {groups.map((g) => (
           <optgroup key={g.category} label={g.label}>
             {g.options.map((o) => (
@@ -273,7 +282,7 @@ function AddFoodItemForm({ dateStr, meal, customFoodItems, onDone }: { dateStr: 
           </optgroup>
         ))}
       </select>
-      <input type="number" name="amountG" min="0" step="1" required placeholder="g" className={`w-16 text-right ${fieldClass}`} />
+      <input type="number" name="amountG" min="0" step={unit === "g" ? "1" : "any"} required placeholder={unit} className={`w-16 text-right ${fieldClass}`} />
       <SubmitButton className="px-3 py-1 rounded-full bg-theme-accent text-theme-own text-xs font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
         Add
       </SubmitButton>
@@ -296,7 +305,13 @@ function SnacksSection({ dateStr, snacks, customFoodItems }: { dateStr: string; 
         <div key={s.id} className="flex items-center justify-between gap-2 py-2 text-base border-b-2 border-theme-accent/15 font-bold">
           <span className="truncate flex-1">
             {s.label}
-            {s.amountG != null && <span className="opacity-50 font-semibold"> ({s.amountG}g)</span>}
+            {s.amountG != null && (
+              <span className="opacity-50 font-semibold">
+                {" "}
+                ({s.amountG}
+                {s.unit === "g" ? "g" : ` ${s.unit}${s.amountG === 1 ? "" : "s"}`})
+              </span>
+            )}
           </span>
           <span className="text-sm opacity-70 whitespace-nowrap">
             {s.carbG}C {s.proteinG}P {s.fatG}F
@@ -323,7 +338,10 @@ function SnacksSection({ dateStr, snacks, customFoodItems }: { dateStr: string; 
 
 function AddSnackForm({ dateStr, customFoodItems, onDone }: { dateStr: string; customFoodItems: CustomFoodRow[]; onDone: () => void }) {
   const [source, setSource] = useState<"catalog" | "other">("catalog");
-  const groups = groupFoodOptions(allFoodOptions(customFoodItems));
+  const options = allFoodOptions(customFoodItems);
+  const groups = groupFoodOptions(options);
+  const [selectedId, setSelectedId] = useState(groups[0]?.options[0]?.groceryId ?? "");
+  const unit = options.find((o) => o.groceryId === selectedId)?.unit ?? "g";
 
   return (
     <form action={addSnack} onSubmit={onDone} className="mt-2 p-3 rounded-2xl border-2 border-theme-accent/20 bg-theme-accent/5 space-y-2">
@@ -336,7 +354,13 @@ function AddSnackForm({ dateStr, customFoodItems, onDone }: { dateStr: string; c
 
       {source === "catalog" && (
         <div className="flex items-center gap-2 flex-wrap">
-          <select name="groceryId" required className={`flex-1 min-w-[9rem] truncate ${fieldClass}`}>
+          <select
+            name="groceryId"
+            required
+            value={selectedId}
+            onChange={(e) => setSelectedId(e.target.value)}
+            className={`flex-1 min-w-[9rem] truncate ${fieldClass}`}
+          >
             {groups.map((g) => (
               <optgroup key={g.category} label={g.label}>
                 {g.options.map((o) => (
@@ -347,7 +371,7 @@ function AddSnackForm({ dateStr, customFoodItems, onDone }: { dateStr: string; c
               </optgroup>
             ))}
           </select>
-          <input type="number" name="amountG" min="0" step="1" required placeholder="g" className={`w-16 text-right ${fieldClass}`} />
+          <input type="number" name="amountG" min="0" step={unit === "g" ? "1" : "any"} required placeholder={unit} className={`w-16 text-right ${fieldClass}`} />
         </div>
       )}
 

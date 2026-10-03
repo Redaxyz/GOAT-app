@@ -2,7 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
-import { setMealPlanItemAmount, setMealPlanItemSwap, addMealPlanExtraItem, updateMealPlanExtraItemAmount, deleteMealPlanExtraItem } from "@/app/actions";
+import {
+  setMealPlanItemAmount,
+  setMealPlanItemSwap,
+  addMealPlanExtraItem,
+  updateMealPlanExtraItemAmount,
+  deleteMealPlanExtraItem,
+  removeMealPlanItem,
+  restoreMealPlanItem,
+} from "@/app/actions";
 import {
   applyFoodSwaps,
   buildOverrideMap,
@@ -23,6 +31,8 @@ type DayPlan = {
   lunch: MacroItem[];
   lunchNote: string;
   dinner: MacroItem[];
+  /** Plan items hidden from this day's meals (see removeMealPlanItem) — kept so they can be offered for restoring. */
+  removed: Record<MealKey, MacroItem[]>;
 };
 
 type OverrideRow = { day: string; meal: string; groceryId: string; amountG: number };
@@ -38,7 +48,9 @@ function amountKey(day: string, meal: MealKey, groceryId: string): string {
  * live. Persisted to the STANDING plan for that weekday going forward, not
  * just today (see setMealPlanItemAmount / setMealPlanItemSwap). Each meal
  * also has an "+ Add" row to pull in anything from My Foods as an extra
- * item (see addMealPlanExtraItem), on top of the fixed plan.
+ * item (see addMealPlanExtraItem), on top of the fixed plan. Any plan item can
+ * be removed from the standing plan — from just that day, or every day it
+ * appears on that meal — and restored from the "Removed" list under it.
  */
 export default function EditableMealPlan({
   days,
@@ -75,9 +87,9 @@ export default function EditableMealPlan({
   }
 
   /** Live amounts -> live swaps (identity + the pasta/rice sauce row) -> live amounts again, so a freshly-swapped-in item still picks up its own pending edit. */
-  function liveMealItems(day: string, meal: MealKey, baseItems: MacroItem[]): MacroItem[] {
+  function liveMealItems(day: string, meal: MealKey, baseItems: MacroItem[], removed: MacroItem[]): MacroItem[] {
     const withAmounts = baseItems.map((it) => liveItem(day, meal, it));
-    const swapped = applyFoodSwaps(withAmounts, day, meal, swapsMap, overrides);
+    const swapped = applyFoodSwaps(withAmounts, day, meal, swapsMap, overrides, new Set(removed.map((r) => r.groceryId)));
     return swapped.map((it) => liveItem(day, meal, it));
   }
 
@@ -108,12 +120,32 @@ export default function EditableMealPlan({
     });
   }
 
+  /** Every weekday whose `meal` currently shows this same plan item — what "remove from all days" acts on. */
+  function daysShowing(meal: MealKey, groceryId: string): string[] {
+    return days.filter((d) => d[meal].some((x) => x.groceryId === groceryId && !x.extraItemId)).map((d) => d.day);
+  }
+
+  function handleRemove(day: string, meal: MealKey, it: MacroItem, scope: "day" | "all") {
+    const targetDays = scope === "all" ? daysShowing(meal, it.groceryId) : [day];
+    startTransition(async () => {
+      await removeMealPlanItem(targetDays, meal, it.groceryId);
+      router.refresh();
+    });
+  }
+
+  function handleRestore(day: string, meal: MealKey, groceryId: string) {
+    startTransition(async () => {
+      await restoreMealPlanItem(day, meal, groceryId);
+      router.refresh();
+    });
+  }
+
   return (
     <div className="space-y-8">
       {days.map((d) => {
-        const breakfast = liveMealItems(d.day, "breakfast", d.breakfast);
-        const lunch = liveMealItems(d.day, "lunch", d.lunch);
-        const dinner = liveMealItems(d.day, "dinner", d.dinner);
+        const breakfast = liveMealItems(d.day, "breakfast", d.breakfast, d.removed.breakfast);
+        const lunch = liveMealItems(d.day, "lunch", d.lunch, d.removed.lunch);
+        const dinner = liveMealItems(d.day, "dinner", d.dinner, d.removed.dinner);
         const total = sumMacros([breakfast, lunch, dinner]);
         return (
           <div key={d.day}>
@@ -123,6 +155,10 @@ export default function EditableMealPlan({
               day={d.day}
               meal="breakfast"
               items={breakfast}
+              removed={d.removed.breakfast}
+              daysShowing={daysShowing}
+              onRemove={handleRemove}
+              onRestore={handleRestore}
               customFoodItems={customFoodItems}
               onChange={handleChange}
               onSwapChange={handleSwapChange}
@@ -132,6 +168,10 @@ export default function EditableMealPlan({
               day={d.day}
               meal="lunch"
               items={lunch}
+              removed={d.removed.lunch}
+              daysShowing={daysShowing}
+              onRemove={handleRemove}
+              onRestore={handleRestore}
               note={d.lunchNote}
               customFoodItems={customFoodItems}
               onChange={handleChange}
@@ -142,6 +182,10 @@ export default function EditableMealPlan({
               day={d.day}
               meal="dinner"
               items={dinner}
+              removed={d.removed.dinner}
+              daysShowing={daysShowing}
+              onRemove={handleRemove}
+              onRestore={handleRestore}
               customFoodItems={customFoodItems}
               onChange={handleChange}
               onSwapChange={handleSwapChange}
@@ -166,19 +210,27 @@ function EditableMealBlock({
   day,
   meal,
   items,
+  removed,
   note,
   customFoodItems,
+  daysShowing,
   onChange,
   onSwapChange,
+  onRemove,
+  onRestore,
 }: {
   label: string;
   day: string;
   meal: MealKey;
   items: MacroItem[];
+  removed: MacroItem[];
   note?: string;
   customFoodItems: CustomFoodRow[];
+  daysShowing: (meal: MealKey, groceryId: string) => string[];
   onChange: (day: string, meal: MealKey, it: MacroItem, value: string) => void;
   onSwapChange: (day: string, meal: MealKey, slot: string, groceryId: string) => void;
+  onRemove: (day: string, meal: MealKey, it: MacroItem, scope: "day" | "all") => void;
+  onRestore: (day: string, meal: MealKey, groceryId: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
 
@@ -194,31 +246,54 @@ function EditableMealBlock({
       </div>
       {items.map((it) => (
         <div key={it.groceryId} className={`grid ${GRID_COLS} items-center gap-2 py-2 text-base border-b-2 border-theme-accent/15 font-bold`}>
-          {it.alternatives && it.slot ? (
-            <select
-              value={it.groceryId}
-              onChange={(e) => onSwapChange(day, meal, it.slot as string, e.target.value)}
-              className="truncate bg-transparent border-b-2 border-dotted border-theme-accent/40 outline-none font-bold"
-            >
-              {it.alternatives.map((alt) => (
-                <option key={alt.groceryId} value={alt.groceryId}>
-                  {alt.item}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className="flex items-center gap-1 min-w-0">
-              <span className="truncate">{it.item}</span>
-              {it.extraItemId && (
-                <form action={deleteMealPlanExtraItem}>
-                  <input type="hidden" name="id" value={it.extraItemId} />
-                  <button type="submit" className="text-base font-bold opacity-40 hover:opacity-80 transition leading-none shrink-0" aria-label={`Remove ${it.item}`}>
-                    ×
+          <span className="flex items-center gap-1 min-w-0">
+            {it.alternatives && it.slot ? (
+              <select
+                value={it.groceryId}
+                onChange={(e) => onSwapChange(day, meal, it.slot as string, e.target.value)}
+                className="flex-1 min-w-0 truncate bg-transparent border-b-2 border-dotted border-theme-accent/40 outline-none font-bold"
+              >
+                {it.alternatives.map((alt) => (
+                  <option key={alt.groceryId} value={alt.groceryId}>
+                    {alt.item}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="flex-1 min-w-0 truncate">{it.item}</span>
+            )}
+            {it.extraItemId ? (
+              <form action={deleteMealPlanExtraItem}>
+                <input type="hidden" name="id" value={it.extraItemId} />
+                <button type="submit" className="text-base font-bold opacity-40 hover:opacity-80 transition leading-none shrink-0" aria-label={`Remove ${it.item}`}>
+                  ×
+                </button>
+              </form>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onRemove(day, meal, it, "day")}
+                  className="text-base font-bold opacity-40 hover:opacity-80 transition leading-none shrink-0"
+                  aria-label={`Remove ${it.item} from ${day}`}
+                  title={`Remove from ${day}`}
+                >
+                  ×
+                </button>
+                {daysShowing(meal, it.groceryId).length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => onRemove(day, meal, it, "all")}
+                    className="text-[10px] font-bold uppercase tracking-wide opacity-40 hover:opacity-80 transition leading-none shrink-0 underline underline-offset-2"
+                    aria-label={`Remove ${it.item} from every day`}
+                    title="Remove from every day it appears on this meal"
+                  >
+                    all
                   </button>
-                </form>
-              )}
-            </span>
-          )}
+                )}
+              </>
+            )}
+          </span>
           <span className="flex items-center justify-end gap-1 whitespace-nowrap">
             <input
               type="number"
@@ -236,6 +311,23 @@ function EditableMealBlock({
         </div>
       ))}
       {note && <div className="text-xs font-semibold opacity-50 pt-1">{note}</div>}
+
+      {removed.length > 0 && (
+        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap pt-1 text-xs font-semibold opacity-60">
+          <span>Removed:</span>
+          {removed.map((it) => (
+            <button
+              key={it.groceryId}
+              type="button"
+              onClick={() => onRestore(day, meal, it.groceryId)}
+              className="underline underline-offset-2 hover:opacity-80 transition"
+              title={`Put ${it.item} back on ${day}`}
+            >
+              {it.item} ↺
+            </button>
+          ))}
+        </div>
+      )}
 
       {adding ? (
         <AddExtraItemForm day={day} meal={meal} customFoodItems={customFoodItems} onDone={() => setAdding(false)} />
@@ -259,7 +351,10 @@ function AddExtraItemForm({
   customFoodItems: CustomFoodRow[];
   onDone: () => void;
 }) {
-  const groups = groupFoodOptions(customFoodItems.map(customFoodToOption));
+  const options = customFoodItems.map(customFoodToOption);
+  const groups = groupFoodOptions(options);
+  const [selectedId, setSelectedId] = useState(groups[0]?.options[0]?.groceryId ?? "");
+  const unit = options.find((o) => o.groceryId === selectedId)?.unit ?? "g";
 
   if (customFoodItems.length === 0) {
     return (
@@ -283,6 +378,8 @@ function AddExtraItemForm({
       <select
         name="customFoodItemId"
         required
+        value={selectedId}
+        onChange={(e) => setSelectedId(e.target.value)}
         className="flex-1 min-w-[9rem] truncate text-xs font-bold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
       >
         {groups.map((g) => (
@@ -299,9 +396,9 @@ function AddExtraItemForm({
         type="number"
         name="amountG"
         min="0"
-        step="1"
+        step={unit === "g" ? "1" : "any"}
         required
-        placeholder="g"
+        placeholder={unit}
         className="w-14 text-right text-xs font-bold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
       />
       <SubmitButton className="px-3 py-1 rounded-full bg-theme-accent text-theme-own text-xs font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">

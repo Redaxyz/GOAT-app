@@ -1,24 +1,26 @@
 import { requireActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getGroceryList, getMealPlan, buildOverrideMap, buildMealPlanSwapMap } from "@/lib/nutrition";
-import { addCustomFoodItem, deleteCustomFoodItem } from "@/app/actions";
+import { deleteCustomFoodItem } from "@/app/actions";
 import EditableMealPlan from "@/app/components/EditableMealPlan";
+import AddCustomFoodForm from "@/app/components/AddCustomFoodForm";
 import SubmitButton from "@/app/components/SubmitButton";
 
 export default async function GroceryPage() {
   const profile = await requireActiveProfile();
 
-  const [overrideRows, swapRows, customFoodItems, extraItemRows] = await Promise.all([
+  const [overrideRows, swapRows, customFoodItems, extraItemRows, removalRows] = await Promise.all([
     prisma.mealPlanItemOverride.findMany({ where: { profileId: profile.id } }),
     prisma.mealPlanItemSwap.findMany({ where: { profileId: profile.id } }),
     prisma.customFoodItem.findMany({ where: { profileId: profile.id }, orderBy: { createdAt: "desc" } }),
     prisma.mealPlanExtraItem.findMany({ where: { profileId: profile.id }, include: { customFoodItem: true } }),
+    prisma.mealPlanItemRemoval.findMany({ where: { profileId: profile.id } }),
   ]);
   const overrides = buildOverrideMap(overrideRows);
   const swaps = buildMealPlanSwapMap(swapRows);
 
-  const groceryList = getGroceryList(overrides, swaps, customFoodItems, extraItemRows);
-  const mealPlan = getMealPlan(overrides, swaps, customFoodItems, extraItemRows);
+  const groceryList = getGroceryList(overrides, swaps, customFoodItems, extraItemRows, removalRows);
+  const mealPlan = getMealPlan(overrides, swaps, customFoodItems, extraItemRows, removalRows);
 
   return (
     <div className="space-y-10">
@@ -46,92 +48,11 @@ export default async function GroceryPage() {
       <section>
         <h2 className="text-lg font-extrabold mb-1">My foods</h2>
         <p className="text-sm font-semibold opacity-70 mb-4">
-          Add any food with its own P/F/C for a given weight — raw or cooked, for your own reference.
+          Add any food with its own P/F/C — per a given weight (raw or cooked), or per unit if you&apos;d rather count it
+          (like running gels).
         </p>
 
-        <form action={addCustomFoodItem} className="space-y-3 mb-6">
-          <input
-            name="name"
-            placeholder="Food name"
-            required
-            className="w-full text-base font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-          />
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1 text-sm font-bold opacity-70">
-              <input
-                name="amountG"
-                type="number"
-                min="0"
-                step="1"
-                required
-                placeholder="Weight"
-                className="w-20 text-right font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              />
-              g
-            </label>
-            <select
-              name="state"
-              defaultValue="raw"
-              className="text-sm font-bold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-            >
-              <option value="raw">Raw</option>
-              <option value="cooked">Cooked</option>
-            </select>
-            <select
-              name="category"
-              defaultValue="other"
-              className="text-sm font-bold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-            >
-              <option value="protein">Protein</option>
-              <option value="carb">Carb</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-          <p className="text-xs font-semibold opacity-50">
-            Protein/carb foods also join the lunch and dinner swap dropdowns; other just adds it here and to the full food list.
-          </p>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1 text-sm font-bold opacity-70">
-              <input
-                name="proteinG"
-                type="number"
-                min="0"
-                step="0.1"
-                required
-                placeholder="0"
-                className="w-16 text-right font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              />
-              P
-            </label>
-            <label className="flex items-center gap-1 text-sm font-bold opacity-70">
-              <input
-                name="carbG"
-                type="number"
-                min="0"
-                step="0.1"
-                required
-                placeholder="0"
-                className="w-16 text-right font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              />
-              C
-            </label>
-            <label className="flex items-center gap-1 text-sm font-bold opacity-70">
-              <input
-                name="fatG"
-                type="number"
-                min="0"
-                step="0.1"
-                required
-                placeholder="0"
-                className="w-16 text-right font-extrabold bg-transparent border-b-2 border-theme-accent/30 focus:border-theme-accent outline-none py-1"
-              />
-              F
-            </label>
-          </div>
-          <SubmitButton className="px-5 py-2.5 rounded-full bg-theme-accent text-theme-own text-sm font-extrabold shadow-sm hover:opacity-90 active:scale-95 transition">
-            Add food
-          </SubmitButton>
-        </form>
+        <AddCustomFoodForm />
 
         {customFoodItems.map((food) => {
           const calories = Math.round(food.proteinG * 4 + food.carbG * 4 + food.fatG * 9);
@@ -140,7 +61,8 @@ export default async function GroceryPage() {
               <div className="min-w-0">
                 <div className="font-extrabold truncate">{food.name}</div>
                 <div className="text-xs font-semibold opacity-60">
-                  {food.amountG}g ({food.state}, {food.category}) — {calories} cal — {food.proteinG}P {food.carbG}C {food.fatG}F
+                  {food.unit === "g" ? `${food.amountG}g (${food.state}, ${food.category})` : `1 ${food.unit} (${food.category})`} — {calories} cal —{" "}
+                  {food.proteinG}P {food.carbG}C {food.fatG}F
                 </div>
               </div>
               <form action={deleteCustomFoodItem}>

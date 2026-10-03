@@ -114,6 +114,7 @@ async function FoodAndWorkoutSections({
     extraItemRows,
     dateExtraRows,
     removalRows,
+    standingRemovalRows,
   ] = await Promise.all([
     getFitnessData(profileId, profileSlug),
     prisma.mealPlanItemOverride.findMany({ where: { profileId } }),
@@ -126,11 +127,12 @@ async function FoodAndWorkoutSections({
     prisma.mealPlanExtraItem.findMany({ where: { profileId, day: weekday }, include: { customFoodItem: true } }),
     prisma.foodItemExtra.findMany({ where: { profileId, date: dateOnly(dateStr) } }),
     prisma.foodItemRemoval.findMany({ where: { profileId, date: dateOnly(dateStr) } }),
+    prisma.mealPlanItemRemoval.findMany({ where: { profileId, day: weekday } }),
   ]);
 
   const overrides = buildOverrideMap(overrideRows);
   const weekdaySwaps = buildMealPlanSwapMap(weekdaySwapRows);
-  const dayPlan = getMealPlan(overrides, weekdaySwaps, customFoodItems, extraItemRows).find((d) => d.day === weekday);
+  const dayPlan = getMealPlan(overrides, weekdaySwaps, customFoodItems, extraItemRows, standingRemovalRows).find((d) => d.day === weekday);
 
   const initialFoodLog: Record<string, number> = {};
   for (const row of foodLogRows) initialFoodLog[foodLogKey(row.meal as MealKey, row.groceryId)] = row.amountG;
@@ -141,13 +143,13 @@ async function FoodAndWorkoutSections({
   // makeFullySwappable.
   const dateSwaps = buildFoodSwapMap(weekday, dateSwapRows);
   const breakfast = dayPlan
-    ? applyDailyModifications(dayPlan.breakfast, "breakfast", weekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
+    ? applyDailyModifications(dayPlan.breakfast, "breakfast", weekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows, standingRemovalRows)
     : [];
   const lunch = dayPlan
-    ? applyDailyModifications(dayPlan.lunch, "lunch", weekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
+    ? applyDailyModifications(dayPlan.lunch, "lunch", weekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows, standingRemovalRows)
     : [];
   const dinner = dayPlan
-    ? applyDailyModifications(dayPlan.dinner, "dinner", weekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows)
+    ? applyDailyModifications(dayPlan.dinner, "dinner", weekday, dateSwaps, overrides, customFoodItems, dateExtraRows, removalRows, standingRemovalRows)
     : [];
   const dayTotal = sumMacros([breakfast, lunch, dinner]);
 

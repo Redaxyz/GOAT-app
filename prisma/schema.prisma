@@ -44,6 +44,7 @@ model Profile {
   scheduleExtras       ScheduleExtra[]
   scheduleTemplate     ScheduleTemplate[]
   mealPlanItemOverride MealPlanItemOverride[]
+  mealPlanItemRemoval  MealPlanItemRemoval[]
   foodLogs             FoodLog[]
   foodItemSwaps        FoodItemSwap[]
   mealPlanItemSwaps    MealPlanItemSwap[]
@@ -289,6 +290,26 @@ model MealPlanItemSwap {
   @@map("meal_plan_item_swaps")
 }
 
+// ---- Nutrition: standing plan removals --------------------------------------
+// Hides one item from a weekday's meal on the STANDING plan (e.g. dropping
+// yogurt and granola from every weekday breakfast) — the weekday counterpart
+// to FoodItemRemoval, which only hides it on one specific date. groceryId is
+// whatever's currently shown for that slot, i.e. after any standing swap.
+
+model MealPlanItemRemoval {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  day       String
+  meal      String
+  groceryId String
+
+  createdAt DateTime @default(now())
+
+  @@unique([profileId, day, meal, groceryId])
+  @@map("meal_plan_item_removals")
+}
+
 // ---- Nutrition: actual per-date food log -----------------------------------
 // Distinct from MealPlanItemOverride above: that adjusts the standing plan
 // for a weekday going forward (feeds the grocery list); this records what
@@ -348,7 +369,12 @@ model CustomFoodItem {
   profileId String
   profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
   name      String
+  // Reference quantity the macros below are given for — grams by default, or
+  // a count of `unit` (always 1) for a food tracked per piece, like a running
+  // gel. Everything downstream still computes through a per-100 rate, so a
+  // unit-based food just treats one unit like one "gram".
   amountG   Float
+  unit      String   @default("g") // "g", or a singular unit name like "gel"
   state     String // "raw" | "cooked"
   category  String   @default("other") // "protein" | "carb" | "other" — protein/carb entries also join the lunch/dinner meat/carb swap dropdowns (see lib/nutrition.ts)
   proteinG  Float
@@ -377,6 +403,7 @@ model SnackLog {
   date      DateTime
   label     String
   amountG   Float?
+  unit      String   @default("g") // what amountG counts — "g", or a unit name for a unit-based custom food
   proteinG  Float
   carbG     Float
   fatG      Float

@@ -37,7 +37,16 @@ const TUNA_PER_100G = { protein: 25.5, carb: 0, fat: 0.8 }; // canned in water, 
 export type MacroRate = { protein: number; carb: number; fat: number };
 /** "protein"/"carb" entries join the lunch/dinner meat/carb swap dropdowns (built-in ones already sorted into place; see meatAlternatives/carbAlternatives); "other" only ever shows up in the full catalog (allFoodOptions). */
 export type FoodCategory = "protein" | "carb" | "other";
-export type SwapOption = { groceryId: string; item: string; per100g: MacroRate; category: FoodCategory };
+export type SwapOption = {
+  groceryId: string;
+  item: string;
+  per100g: MacroRate;
+  category: FoodCategory;
+  /** What the amount counts — "g" when omitted; a unit name (e.g. "gel") for a unit-based custom food. */
+  unit?: string;
+  /** Starting amount when this is swapped in for an item measured in a different unit (a gram amount makes no sense carried over to a count of gels). */
+  defaultAmount?: number;
+};
 
 const BREAKFAST_YOGURT_ALTERNATIVES: SwapOption[] = [
   { groceryId: "yogurt", item: "Greek yogurt (Oikos Triple Zero Vanilla)", per100g: YOGURT_PER_100G, category: "other" },
@@ -60,7 +69,7 @@ const CARB_ALTERNATIVES: SwapOption[] = [
 ];
 
 /** A CustomFoodItem row, as read from the DB (or the subset of fields needed to convert one). */
-export type CustomFoodRow = { id: string; name: string; amountG: number; proteinG: number; carbG: number; fatG: number; category: string };
+export type CustomFoodRow = { id: string; name: string; amountG: number; proteinG: number; carbG: number; fatG: number; category: string; unit?: string };
 
 function normalizeCategory(raw: string): FoodCategory {
   return raw === "protein" || raw === "carb" ? raw : "other";
@@ -77,7 +86,14 @@ function customFoodPer100g(food: { amountG: number; proteinG: number; carbG: num
 }
 
 export function customFoodToOption(food: CustomFoodRow): SwapOption {
-  return { groceryId: food.id, item: food.name, per100g: customFoodPer100g(food), category: normalizeCategory(food.category) };
+  const unit = food.unit ?? "g";
+  return {
+    groceryId: food.id,
+    item: food.name,
+    per100g: customFoodPer100g(food),
+    category: normalizeCategory(food.category),
+    ...(unit !== "g" ? { unit, defaultAmount: food.amountG } : {}),
+  };
 }
 
 function sortOptions(options: SwapOption[]): SwapOption[] {
@@ -318,21 +334,33 @@ export function buildMealPlanSwapMap(rows: { day: string; meal: string; slot: st
  * added if it's missing and the carb is now pasta, removed if it's present
  * and the carb is now rice.
  */
-export function applyFoodSwaps(items: MacroItem[], day: string, meal: MealKey, swaps: Map<string, string>, overrides: Map<string, number>): MacroItem[] {
+export function applyFoodSwaps(
+  items: MacroItem[],
+  day: string,
+  meal: MealKey,
+  swaps: Map<string, string>,
+  overrides: Map<string, number>,
+  /** groceryIds removed from this meal on the standing plan — the sauce row is never re-added if it's one of them. */
+  removedIds: Set<string> = new Set()
+): MacroItem[] {
   let result = items.map((it) => {
     if (!it.slot || !it.alternatives) return it;
     const selectedId = swaps.get(foodSwapKey(day, meal, it.slot));
     if (!selectedId || selectedId === it.groceryId) return it;
     const alt = it.alternatives.find((a) => a.groceryId === selectedId);
     if (!alt) return it;
-    return { ...it, item: alt.item, groceryId: alt.groceryId, per100g: alt.per100g, ...macroGrams(it.amount, alt.per100g) };
+    const unit = alt.unit ?? "g";
+    // A different unit means the carried-over amount is meaningless (350g of
+    // chicken is not 350 gels) — start from the food's own reference amount.
+    const amount = unit !== it.unit && alt.defaultAmount != null ? alt.defaultAmount : it.amount;
+    return { ...it, item: alt.item, groceryId: alt.groceryId, per100g: alt.per100g, unit, amount, ...macroGrams(amount, alt.per100g) };
   });
 
   const carbItem = result.find((it) => it.slot === "carb");
   if (carbItem) {
     const wantsSauce = carbItem.groceryId === "pasta";
     const hasSauce = result.some((it) => it.groceryId === "sauce");
-    if (wantsSauce && !hasSauce) result = [...result, sauceRow(day, meal, overrides)];
+    if (wantsSauce && !hasSauce && !removedIds.has("sauce")) result = [...result, sauceRow(day, meal, overrides)];
     else if (!wantsSauce && hasSauce) result = result.filter((it) => it.groceryId !== "sauce");
   }
 
@@ -352,7 +380,7 @@ function extrasFor(day: string, meal: MealKey, extraItems: ExtraItemRow[]): Macr
         item: e.customFoodItem.name,
         groceryId: e.customFoodItem.id,
         amount: e.amountG,
-        unit: "g",
+        unit: e.customFoodItem.unit ?? "g",
         per100g,
         ...macroGrams(e.amountG, per100g),
         extraItemId: e.id,
@@ -387,7 +415,7 @@ export function appendDailyExtras(items: MacroItem[], meal: MealKey, extras: Dat
     .map((e): MacroItem | null => {
       const option = catalog.find((o) => o.groceryId === e.groceryId);
       if (!option) return null; // the food it referenced no longer exists — skip rather than crash
-      return { item: option.item, groceryId: option.groceryId, amount: e.amountG, unit: "g", per100g: option.per100g, ...macroGrams(e.amountG, option.per100g), extraItemId: e.id };
+      return { item: option.item, groceryId: option.groceryId, amount: e.amountG, unit: option.unit ?? "g", per100g: option.per100g, ...macroGrams(e.amountG, option.per100g), extraItemId: e.id };
     })
     .filter((it): it is MacroItem => it != null);
   return [...items, ...extraItems];
@@ -415,13 +443,22 @@ export function applyDailyModifications(
   overrides: Map<string, number>,
   customFoods: CustomFoodRow[],
   extras: DateExtraRow[],
-  removals: RemovalRow[]
+  removals: RemovalRow[],
+  /** The standing plan's own removals (see MealPlanItemRemoval) — only needed so a standing-removed sauce isn't re-added by the carb slot's pasta logic. */
+  standingRemovals: MealPlanRemovalRow[] = []
 ): MacroItem[] {
   let result = makeFullySwappable(items, customFoods);
-  result = applyFoodSwaps(result, day, meal, swaps, overrides);
+  result = applyFoodSwaps(result, day, meal, swaps, overrides, removedIdsFor(standingRemovals, day, meal));
   result = removeDailyItems(result, meal, removals);
   result = appendDailyExtras(result, meal, extras, customFoods);
   return result;
+}
+
+/** A MealPlanItemRemoval row. */
+export type MealPlanRemovalRow = { day: string; meal: string; groceryId: string };
+
+function removedIdsFor(removals: MealPlanRemovalRow[], day: string, meal: MealKey): Set<string> {
+  return new Set(removals.filter((r) => r.day === day && r.meal === meal).map((r) => r.groceryId));
 }
 
 export function sumMacros(items: MacroItem[][]) {
@@ -444,34 +481,38 @@ export function sumMacros(items: MacroItem[][]) {
  * date-specific swap layers on top via a second applyFoodSwaps call.
  * `customFoods` extends the meat/carb slots' alternatives with any saved
  * "protein"/"carb" custom foods. `extraItems` appends whole extra rows
- * added to a meal beyond the fixed plan (see MealPlanExtraItem).
+ * added to a meal beyond the fixed plan (see MealPlanExtraItem). `removals`
+ * hides plan items from a weekday's meal for good (see MealPlanItemRemoval)
+ * — applied after swaps, so it matches whatever's shown for that slot; the
+ * hidden items come back in `removed` so they can be offered for restoring.
  */
 export function getMealPlan(
   overrides: Map<string, number>,
   swaps: Map<string, string> = new Map(),
   customFoods: CustomFoodRow[] = [],
-  extraItems: ExtraItemRow[] = []
+  extraItems: ExtraItemRow[] = [],
+  removals: MealPlanRemovalRow[] = []
 ) {
   return WEEKLY_MEAL_PLAN.map(({ day, breakfast, lunch, dinner }) => {
-    const breakfastRows = [
-      ...applyFoodSwaps(breakfastItems(day, breakfast, overrides), day, "breakfast", swaps, overrides),
-      ...extrasFor(day, "breakfast", extraItems),
-    ];
-    const lunchRows = [
-      ...applyFoodSwaps(lunchItems(day, lunch, overrides, customFoods), day, "lunch", swaps, overrides),
-      ...extrasFor(day, "lunch", extraItems),
-    ];
-    const dinnerRows = [
-      ...applyFoodSwaps(dinnerItems(day, dinner, breakfast, overrides, customFoods), day, "dinner", swaps, overrides),
-      ...extrasFor(day, "dinner", extraItems),
-    ];
+    const resolve = (meal: MealKey, base: MacroItem[]) => {
+      const removedIds = removedIdsFor(removals, day, meal);
+      const swapped = applyFoodSwaps(base, day, meal, swaps, overrides, removedIds);
+      return {
+        shown: [...swapped.filter((it) => !removedIds.has(it.groceryId)), ...extrasFor(day, meal, extraItems)],
+        removed: swapped.filter((it) => removedIds.has(it.groceryId)),
+      };
+    };
+    const b = resolve("breakfast", breakfastItems(day, breakfast, overrides));
+    const l = resolve("lunch", lunchItems(day, lunch, overrides, customFoods));
+    const d = resolve("dinner", dinnerItems(day, dinner, breakfast, overrides, customFoods));
     return {
       day,
-      breakfast: breakfastRows,
-      lunch: lunchRows,
+      breakfast: b.shown,
+      lunch: l.shown,
       lunchNote: "+ assorted vegetables (not tracked)",
-      dinner: dinnerRows,
-      total: sumMacros([breakfastRows, lunchRows, dinnerRows]),
+      dinner: d.shown,
+      removed: { breakfast: b.removed, lunch: l.removed, dinner: d.removed },
+      total: sumMacros([b.shown, l.shown, d.shown]),
     };
   });
 }
@@ -511,12 +552,13 @@ export function getGroceryList(
   overrides: Map<string, number>,
   swaps: Map<string, string> = new Map(),
   customFoods: CustomFoodRow[] = [],
-  extraItems: ExtraItemRow[] = []
+  extraItems: ExtraItemRow[] = [],
+  removals: MealPlanRemovalRow[] = []
 ) {
-  const totals = new Map<string, { amount: number; proteinG: number; carbG: number; fatG: number; label: string }>();
-  for (const day of getMealPlan(overrides, swaps, customFoods, extraItems)) {
+  const totals = new Map<string, { amount: number; proteinG: number; carbG: number; fatG: number; label: string; unit: string }>();
+  for (const day of getMealPlan(overrides, swaps, customFoods, extraItems, removals)) {
     for (const it of [...day.breakfast, ...day.lunch, ...day.dinner]) {
-      const existing = totals.get(it.groceryId) ?? { amount: 0, proteinG: 0, carbG: 0, fatG: 0, label: it.item };
+      const existing = totals.get(it.groceryId) ?? { amount: 0, proteinG: 0, carbG: 0, fatG: 0, label: it.item, unit: it.unit };
       existing.amount += it.amount;
       existing.proteinG += it.proteinG;
       existing.carbG += it.carbG;
@@ -535,7 +577,15 @@ export function getGroceryList(
   }).filter((row): row is NonNullable<typeof row> => row != null);
 
   const extra = Array.from(totals.values())
-    .map((t) => ({ item: t.label, amount: Math.round(t.amount), unit: "g", proteinG: t.proteinG, carbG: t.carbG, fatG: t.fatG }))
+    // A counted unit (gels) can be fractional, so it keeps a decimal; grams round to whole.
+    .map((t) => ({
+      item: t.label,
+      amount: t.unit === "g" ? Math.round(t.amount) : Math.round(t.amount * 10) / 10,
+      unit: t.unit,
+      proteinG: t.proteinG,
+      carbG: t.carbG,
+      fatG: t.fatG,
+    }))
     .sort((a, b) => a.item.localeCompare(b.item));
 
   return [...known, ...extra];
